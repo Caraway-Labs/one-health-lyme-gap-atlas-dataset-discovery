@@ -13,6 +13,10 @@ class RunProfile(StrEnum):
     SCHEDULED = "SCHEDULED"
 
 
+class BudgetExceeded(ValueError):
+    """A hard profile ceiling was reached before the next operation."""
+
+
 class BudgetLimit(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -138,5 +142,10 @@ def charge_budget(usage: BudgetUsage, limits: BudgetLimit, **increments: int) ->
     )
     for name in known:
         if getattr(updated, name) > getattr(limits, name):
-            raise ValueError(f"budget exhausted: {name}")
+            raise BudgetExceeded(f"budget exhausted: {name}")
     return updated
+
+
+def remaining_budget(usage: BudgetUsage, limits: BudgetLimit) -> dict[str, int]:
+    """Expose remaining run allowance without duplicating budget policy."""
+    return {name: getattr(limits, name) - getattr(usage, name) for name in BudgetUsage.model_fields}
