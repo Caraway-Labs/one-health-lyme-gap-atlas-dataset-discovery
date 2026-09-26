@@ -153,3 +153,4 @@ Preferred evolution then: operational Postgres behind the existing repository in
 - data#451 this ADR story
 - data#85 application persistence
 - data#87 DigitalOcean deployment
+- [data ADR 0041 proposal](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/pull/458) — narrow runtime/reviewer role exception; grant implementation requires owner/security acceptance
