@@ -10,6 +10,7 @@ from lyme_gap_atlas_dataset_discovery.domain.models import (
     CandidateIdentity,
     CandidatePage,
     CandidateSummary,
+    DiscoveryContext,
     EvidenceRef,
 )
 
@@ -35,6 +36,9 @@ AND catalog_dataset_id = %s AND catalog_resource_id = %s
 ORDER BY observed_at DESC, observation_id LIMIT %s"""
 _STATUS = """SELECT already_governed FROM DATASET_DISCOVERY.V_CANDIDATE_GOVERNED_STATUS
 WHERE resource_key = %s LIMIT 2"""
+_CONTEXT = """SELECT discovery_run_id, search_fingerprint, completed_at, status
+FROM DATASET_DISCOVERY.V_DISCOVERY_CONTEXT
+WHERE discovery_run_id = %s LIMIT 2"""
 _FIELDS = frozenset(
     {
         "title",
@@ -172,3 +176,28 @@ class SnowflakeCandidateReader:
         if len(rows) > 1:
             raise ValueError("ambiguous governed status")
         return "ALREADY_GOVERNED" if rows and rows[0][0] is True else "UNKNOWN"
+
+
+class SnowflakeDiscoveryContextReader:
+    """Validate that the requested catalog snapshot actually completed."""
+
+    def __init__(self, *, connect: Callable[[], Any]) -> None:
+        self._connect = connect
+
+    def get_context(self, discovery_run_id: str) -> DiscoveryContext:
+        if not discovery_run_id or len(discovery_run_id) > 256:
+            raise ValueError("invalid discovery run ID")
+        with self._connect() as connection, connection.cursor() as cursor:
+            cursor.execute(_CONTEXT, (discovery_run_id,))
+            rows = cursor.fetchall()
+        if len(rows) != 1:
+            raise KeyError(discovery_run_id) if not rows else ValueError("ambiguous discovery run")
+        if len(json.dumps(rows, default=str).encode("utf-8")) > 2048:
+            raise ValueError("discovery context exceeded byte limit")
+        row = rows[0]
+        return DiscoveryContext(
+            discovery_run_id=str(row[0]),
+            search_fingerprint=str(row[1]),
+            completed_at=_timestamp(row[2]),
+            status=str(row[3]),
+        )

@@ -8,12 +8,17 @@ from lyme_gap_atlas_dataset_discovery.domain.models import (
     CandidateOutcomeReceipt,
     CandidatePage,
     CandidateSummary,
+    DiscoveryContext,
     EvidenceRef,
     RecommendationWriteReceipt,
     RunFinalizationReceipt,
     RunReceipt,
 )
 from lyme_gap_atlas_dataset_discovery.domain.persistence import RecommendationWrite
+
+
+class DiscoveryContextReader(Protocol):
+    def get_context(self, discovery_run_id: str) -> DiscoveryContext: ...
 
 
 class CandidateReader(Protocol):
