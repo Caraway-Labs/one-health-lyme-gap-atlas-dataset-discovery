@@ -45,11 +45,29 @@ def test_rank_and_relationship_adjustments() -> None:
     distinct = rank_candidate(candidate())
     complementary = rank_candidate(candidate(Relationship.COMPLEMENTARY))
     mirror = rank_candidate(candidate(Relationship.MIRROR))
-    assert distinct.score == 36
+    assert distinct.score == 38
     assert distinct.bucket == PriorityBucket.HIGH
     assert complementary.score == 38
-    assert mirror.score == 32
-    assert complementary.sort_key < distinct.sort_key < mirror.sort_key
+    assert distinct.missing_count == 1
+    assert mirror.score == 38
+    assert mirror.bucket == PriorityBucket.LOW
+    assert distinct.sort_key == complementary.sort_key
+    assert distinct.sort_key < mirror.sort_key
+
+
+def test_unknown_relationship_and_missing_dimensions_are_explicit_penalties() -> None:
+    unknown = rank_candidate(candidate(Relationship.UNKNOWN))
+    assert unknown.relationship_adjustment == -2
+    assert unknown.score == 36
+    assert unknown.missing_count == 1
+    all_known = candidate().model_copy(
+        update={
+            "dimensions": candidate().dimensions.model_copy(
+                update={"rights_clarity": Dimension(value=2, supporting_observation_ids=("obs-1",))}
+            )
+        }
+    )
+    assert rank_candidate(all_known).score == 42
 
 
 def test_unknown_rights_do_not_block_investigation() -> None:

@@ -67,30 +67,21 @@ class PriorityResult(StrictModel):
     score: int | None
     bucket: PriorityBucket
     relationship_adjustment: int
+    missing_count: int
     abstain_reason: str | None
     # For sorting eligible results ascending. Abstentions always follow eligible results.
-    sort_key: tuple[int, int, int, int, int, int, str, str]
+    sort_key: tuple[int, int, int, int, str, str]
 
 
 WEIGHTS = {
     "relevance": 5,
     "geography": 3,
-    "variables": 3,
+    "variables": 4,
     "time": 2,
-    "provenance": 2,
+    "provenance": 3,
     "freshness": 1,
     "rights_clarity": 1,
     "complementarity": 2,
-}
-
-RELATIONSHIP_ADJUSTMENT = {
-    Relationship.COMPLEMENTARY: 2,
-    Relationship.REVISION: 1,
-    Relationship.SUPERSESSION: 1,
-    Relationship.DISTINCT: 0,
-    Relationship.UNKNOWN: -2,
-    Relationship.MIRROR: -4,
-    Relationship.ALTERNATE_DISTRIBUTION: -4,
 }
 
 
@@ -119,41 +110,40 @@ def rank_candidate(candidate: PriorityInput) -> PriorityResult:
             score=None,
             bucket=PriorityBucket.ABSTAIN,
             relationship_adjustment=0,
+            missing_count=sum(item["value"] is None for item in values.values()),
             abstain_reason=reason,
-            sort_key=(
-                1,
-                0,
-                0,
-                0,
-                0,
-                0,
-                candidate.resource_key,
-                candidate.recommendation_version_id,
-            ),
+            sort_key=(1, 3, 0, 0, candidate.resource_key, candidate.recommendation_version_id),
         )
 
     base = sum(WEIGHTS[name] * (dimension["value"] or 0) for name, dimension in values.items())
-    adjustment = RELATIONSHIP_ADJUSTMENT[candidate.relationship]
-    score = max(0, min(40, base + adjustment))
+    missing_count = sum(dimension["value"] is None for dimension in values.values())
+    adjustment = -2 if candidate.relationship == Relationship.UNKNOWN else 0
+    score = max(0, base - 2 * missing_count + adjustment)
     bucket = (
         PriorityBucket.HIGH
-        if score >= 28
+        if score >= 30
         else PriorityBucket.MEDIUM
         if score >= 18
         else PriorityBucket.LOW
     )
+    if candidate.relationship in {Relationship.MIRROR, Relationship.ALTERNATE_DISTRIBUTION}:
+        bucket = PriorityBucket.LOW
+    bucket_order = {
+        PriorityBucket.HIGH: 0,
+        PriorityBucket.MEDIUM: 1,
+        PriorityBucket.LOW: 2,
+    }[bucket]
     return PriorityResult(
         score=score,
         bucket=bucket,
         relationship_adjustment=adjustment,
+        missing_count=missing_count,
         abstain_reason=None,
         sort_key=(
             0,
+            bucket_order,
             -score,
-            -(dimensions.relevance.value or 0),
-            -(dimensions.geography.value or 0),
-            -(dimensions.variables.value or 0),
-            -(dimensions.time.value or 0),
+            missing_count,
             candidate.resource_key,
             candidate.recommendation_version_id,
         ),
