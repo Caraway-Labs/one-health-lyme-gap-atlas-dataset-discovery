@@ -38,7 +38,12 @@ from .budgets import (
     charge_budget,
     remaining_budget,
 )
-from .planner import CandidatePlanner, ModelAllowance, PlannerResult
+from .planner import (
+    CandidatePlanner,
+    ModelAllowance,
+    PlannerResult,
+    ValidatedCandidatePlanner,
+)
 from .state import STATE_VERSION, DatasetDiscoveryState, clear_candidate_state
 
 
@@ -179,6 +184,15 @@ def _charge_model_result[T](
 
 def build_graph(deps: GraphDependencies) -> Any:
     """Compile one-candidate-at-a-time graph; production adapters are injected."""
+
+    validated_planner = (
+        deps.planner
+        if isinstance(deps.planner, ValidatedCandidatePlanner)
+        else ValidatedCandidatePlanner(deps.planner)
+    )
+
+    def planner_for(state: DatasetDiscoveryState) -> CandidatePlanner:
+        return deps.planner if state["profile"] == RunProfile.FIXTURE else validated_planner
 
     def initialize_run(state: DatasetDiscoveryState) -> DatasetDiscoveryState:
         required = (
@@ -353,7 +367,7 @@ def build_graph(deps: GraphDependencies) -> Any:
             raise ValueError("no candidate selected")
         allowance = _model_allowance(state["usage"], state["limits"])
         response, usage = _bounded_call(
-            call=lambda: deps.planner.relationship(
+            call=lambda: planner_for(state).relationship(
                 candidate, state["current_observations"], allowance=allowance
             ),
             usage=state["usage"],
@@ -375,7 +389,7 @@ def build_graph(deps: GraphDependencies) -> Any:
             raise ValueError("candidate relationship missing")
         allowance = _model_allowance(state["usage"], state["limits"])
         response, usage = _bounded_call(
-            call=lambda: deps.planner.classify(
+            call=lambda: planner_for(state).classify(
                 candidate, state["current_observations"], allowance=allowance
             ),
             usage=state["usage"],
@@ -414,7 +428,9 @@ def build_graph(deps: GraphDependencies) -> Any:
             raise ValueError("candidate analysis missing")
         allowance = _model_allowance(state["usage"], state["limits"])
         response, usage = _bounded_call(
-            call=lambda: deps.planner.rationale(analysis, allowance=allowance),
+            call=lambda: planner_for(state).rationale(
+                analysis, state["current_observations"], allowance=allowance
+            ),
             usage=state["usage"],
             limits=state["limits"],
             dimension="model_calls",
@@ -433,7 +449,9 @@ def build_graph(deps: GraphDependencies) -> Any:
             raise ValueError("candidate analysis missing")
         allowance = _model_allowance(state["usage"], state["limits"])
         response, usage = _bounded_call(
-            call=lambda: deps.planner.proposals(analysis, allowance=allowance),
+            call=lambda: planner_for(state).proposals(
+                analysis, state["current_observations"], allowance=allowance
+            ),
             usage=state["usage"],
             limits=state["limits"],
             dimension="model_calls",
