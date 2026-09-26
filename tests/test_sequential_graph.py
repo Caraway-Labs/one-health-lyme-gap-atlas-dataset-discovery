@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 from lyme_gap_atlas_dataset_discovery.adapters.fake import (
     FakeCandidateReader,
+    FakeDiscoveryContextReader,
     FakeRecommendationRepository,
 )
 from lyme_gap_atlas_dataset_discovery.domain.analysis import (
@@ -16,6 +17,7 @@ from lyme_gap_atlas_dataset_discovery.domain.models import (
     CandidateIdentity,
     CandidateOutcomeReceipt,
     CandidateSummary,
+    DiscoveryContext,
     EvidenceRef,
     ObservedFact,
     RecommendationWriteReceipt,
@@ -110,6 +112,19 @@ def input_state(*, run_id: str = "run-1", candidate_limit: int | None = None) ->
         "evidence_snapshot_id": "fixture-snapshot",
         "limits": limits,
     }
+
+
+def fixture_context() -> FakeDiscoveryContextReader:
+    return FakeDiscoveryContextReader(
+        {
+            "fixture-snapshot": DiscoveryContext(
+                discovery_run_id="fixture-snapshot",
+                search_fingerprint="c" * 64,
+                completed_at="2026-09-26T00:00:00Z",
+                status="COMPLETED",
+            )
+        }
+    )
 
 
 def test_valid_candidate_persists_and_finalizes() -> None:
@@ -393,7 +408,11 @@ def test_transient_reader_and_model_errors_retry_with_attempts_charged() -> None
     repository = FakeRecommendationRepository()
     graph = build_graph(
         GraphDependencies(
-            reader=reader, repository=repository, planner=planner, sleep=lambda _: None
+            reader=reader,
+            repository=repository,
+            planner=planner,
+            context_reader=fixture_context(),
+            sleep=lambda _: None,
         )
     )
     state = input_state()
@@ -422,6 +441,7 @@ def test_exhausted_model_retries_record_candidate_and_charge_attempts() -> None:
             ),
             repository=repository,
             planner=DownPlanner({"candidate": plan}),
+            context_reader=fixture_context(),
             sleep=lambda _: None,
         )
     )
@@ -432,3 +452,39 @@ def test_exhausted_model_retries_record_candidate_and_charge_attempts() -> None:
     assert result["processed_candidate_outcomes"] == ("CANDIDATE_ANALYSIS_ERROR",)
     assert result["usage"].model_calls == 3
     assert repository.finalizations["run-1"].processed_count == 1
+
+
+def test_nonfixture_run_requires_matching_governed_context() -> None:
+    repository = FakeRecommendationRepository()
+    graph = build_graph(
+        GraphDependencies(
+            reader=FakeCandidateReader(discovery_run_id="other-snapshot"),
+            repository=repository,
+            planner=FakeCandidatePlanner({}),
+            context_reader=fixture_context(),
+        )
+    )
+    state = input_state()
+    state["profile"] = RunProfile.DEV_MANUAL
+    state["limits"] = PROFILE_DEFAULTS[RunProfile.DEV_MANUAL]
+    result = graph.invoke(state, config={"recursion_limit": 100})
+    assert result["final_status"] == "FAILED"
+    assert result["stop_reason"] == "load_discovery_context:ValueError"
+    assert repository.finalizations["run-1"].status == "FAILED"
+
+    wrong_fingerprint = input_state(run_id="run-2")
+    wrong_fingerprint["profile"] = RunProfile.DEV_MANUAL
+    wrong_fingerprint["limits"] = PROFILE_DEFAULTS[RunProfile.DEV_MANUAL]
+    wrong_fingerprint["search_fingerprint"] = "d" * 64
+    reader = FakeCandidateReader()
+    graph = build_graph(
+        GraphDependencies(
+            reader=reader,
+            repository=repository,
+            planner=FakeCandidatePlanner({}),
+            context_reader=fixture_context(),
+        )
+    )
+    mismatch = graph.invoke(wrong_fingerprint, config={"recursion_limit": 100})
+    assert mismatch["final_status"] == "FAILED"
+    assert repository.finalizations["run-2"].status == "FAILED"

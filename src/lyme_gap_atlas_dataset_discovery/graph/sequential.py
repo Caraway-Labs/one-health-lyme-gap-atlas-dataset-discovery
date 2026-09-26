@@ -25,6 +25,7 @@ from lyme_gap_atlas_dataset_discovery.domain.ranking import (
 )
 from lyme_gap_atlas_dataset_discovery.ports.contracts import (
     CandidateReader,
+    DiscoveryContextReader,
     RecommendationRepository,
 )
 
@@ -33,6 +34,7 @@ from .budgets import (
     BudgetLimit,
     BudgetUsage,
     RunBudgetConfig,
+    RunProfile,
     charge_budget,
     remaining_budget,
 )
@@ -45,6 +47,7 @@ class GraphDependencies:
     reader: CandidateReader
     repository: RecommendationRepository
     planner: CandidatePlanner
+    context_reader: DiscoveryContextReader | None = None
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)
     cancellation_requested: Callable[[], bool] = lambda: False
     sleep: Callable[[float], None] = time.sleep
@@ -206,6 +209,19 @@ def build_graph(deps: GraphDependencies) -> Any:
     def load_discovery_context(state: DatasetDiscoveryState) -> DatasetDiscoveryState:
         if not state["search_fingerprint"] or not state["evidence_snapshot_id"]:
             raise ValueError("inaccessible discovery context")
+        if deps.context_reader is None:
+            if state["profile"] != RunProfile.FIXTURE:
+                raise ValueError("non-fixture run requires governed discovery context")
+            return {}
+        context = deps.context_reader.get_context(state["evidence_snapshot_id"])
+        if (
+            context.discovery_run_id != state["evidence_snapshot_id"]
+            or context.search_fingerprint != state["search_fingerprint"]
+        ):
+            raise ValueError("discovery context differs from requested snapshot or search config")
+        reader_snapshot = getattr(deps.reader, "discovery_run_id", None)
+        if reader_snapshot != context.discovery_run_id:
+            raise ValueError("candidate reader is pinned to a different discovery run")
         return {}
 
     def load_candidate_batch(state: DatasetDiscoveryState) -> DatasetDiscoveryState:
