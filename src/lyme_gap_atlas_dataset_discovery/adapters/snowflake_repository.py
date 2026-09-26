@@ -20,7 +20,9 @@ from lyme_gap_atlas_dataset_discovery.domain.persistence import RecommendationWr
 
 
 class Cursor(Protocol):
-    def execute(self, sql: str, params: Sequence[object] = ()) -> "Cursor": ...
+    def execute(
+        self, sql: str, params: Sequence[object] = (), *, timeout: int | None = None
+    ) -> "Cursor": ...
 
     def fetchone(self) -> tuple[Any, ...] | None: ...
 
@@ -57,7 +59,7 @@ class SnowflakeRecommendationRepository:
     def _one(self, sql: str, params: Sequence[object]) -> tuple[Any, ...] | None:
         cursor = self._connection.cursor()
         try:
-            cursor.execute(sql, params)
+            cursor.execute(sql, params, timeout=30 if sql.startswith("CALL ") else 15)
             row = cursor.fetchone()
             if row is not None and cursor.fetchone() is not None:
                 raise ValueError("Snowflake receipt returned duplicate rows")

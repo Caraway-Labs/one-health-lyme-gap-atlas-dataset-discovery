@@ -21,7 +21,7 @@ from lyme_gap_atlas_dataset_discovery.domain.models import (
 @dataclass
 class StubConnection:
     responses: list[list[tuple[Any, ...]]]
-    calls: list[tuple[str, tuple[object, ...]]] = field(default_factory=list)
+    calls: list[tuple[str, tuple[object, ...], int | None]] = field(default_factory=list)
     closed_cursors: int = 0
 
     def cursor(self) -> "StubCursor":
@@ -33,8 +33,10 @@ class StubCursor:
     connection: StubConnection
     rows: list[tuple[Any, ...]]
 
-    def execute(self, sql: str, params: Sequence[object] = ()) -> "StubCursor":
-        self.connection.calls.append((sql, tuple(params)))
+    def execute(
+        self, sql: str, params: Sequence[object] = (), *, timeout: int | None = None
+    ) -> "StubCursor":
+        self.connection.calls.append((sql, tuple(params), timeout))
         return self
 
     def fetchone(self) -> tuple[Any, ...] | None:
@@ -77,9 +79,10 @@ def test_create_run_calls_only_fixed_procedure_and_recovers_receipt() -> None:
     recovered = repository.get_run("run-key")
     assert recovered is not None
     assert recovered.request_fingerprint == meta.request_fingerprint
-    call, params = connection.calls[0]
+    call, params, timeout = connection.calls[0]
     assert call == "CALL DATASET_DISCOVERY.SP_CREATE_RUN(%s, %s, %s, %s)"
     assert params[:3] == ("run-key", "run-1", None)
+    assert timeout == 30
     assert json.loads(str(params[3]))["request_fingerprint"] == meta.request_fingerprint
     assert "V_RUN_RECEIPTS" in connection.calls[1][0]
     assert connection.closed_cursors == 2

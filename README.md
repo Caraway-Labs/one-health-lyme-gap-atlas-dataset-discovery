@@ -10,7 +10,9 @@ This repository owns the Python/LangGraph application, agent orchestration, prom
 
 ## Local foundation development
 
-Requires Python 3.12 and `uv`. This initial package includes a deterministic fake reader/repository and a compiled smoke graph; the full reviewed v1 graph belongs to Story #12. No Snowflake, model, or DigitalOcean credential is needed for local tests.
+Requires Python 3.12 and `uv`. The package includes deterministic fake adapters, the sequential graph, and fixed Snowflake adapters. Local tests need no Snowflake, model, or DigitalOcean credential. The Snowflake adapters depend on the data-owned Dataset Discovery views and procedures in the reviewed V106–V108 migration sequence; their presence in this package does not establish a live DEV deployment or approved runtime grants.
+
+`SnowflakeCandidateReader` and `SnowflakeDiscoveryContextReader` accept a host-supplied connection factory and expose only snapshot-pinned, parameterized reads. The recommendation repository accepts a host-supplied runtime connection and calls only fixed business procedures or receipt views. The host must establish and verify the approved least-privilege role before constructing these adapters. The agent graph cannot supply SQL or change the connection role.
 
 ```powershell
 uv sync --extra dev --locked
