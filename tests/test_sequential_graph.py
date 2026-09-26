@@ -179,6 +179,10 @@ def test_insufficient_candidate_does_not_stop_next_candidate() -> None:
     result = graph.invoke(input_state(), config={"recursion_limit": 100})
     assert result["processed_count"] == 2
     assert result["processed_candidate_outcomes"] == ("INSUFFICIENT_EVIDENCE",)
+    outcome = repository.outcomes["outcome:run-1:bad"]
+    assert outcome.catalog_dataset_id == "dataset-bad"
+    assert outcome.catalog_resource_id == "catalog-resource-bad"
+    assert outcome.evidence_snapshot_id == "fixture-snapshot"
     assert len(repository.recommendations) == 1
     assert repository.finalizations["run-1"].status == "SUCCEEDED_WITH_RECOMMENDATIONS"
 

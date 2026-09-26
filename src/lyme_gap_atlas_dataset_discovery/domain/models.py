@@ -114,6 +114,9 @@ class CandidateOutcomeReceipt(StrictModel):
     operation_key: str = Field(min_length=1)
     run_id: str = Field(min_length=1)
     resource_key: str = Field(min_length=1)
+    catalog_dataset_id: str = Field(min_length=1)
+    catalog_resource_id: str = Field(min_length=1)
+    evidence_snapshot_id: str = Field(min_length=1)
     outcome: str = Field(min_length=1)
     reason_code: str | None = None
 

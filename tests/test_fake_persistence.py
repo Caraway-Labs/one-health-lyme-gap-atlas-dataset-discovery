@@ -131,6 +131,9 @@ def test_finalization_recomputed_from_receipts_and_replay_safe() -> None:
         operation_key="outcome:run-a:bad",
         run_id="run-a",
         resource_key="bad",
+        catalog_dataset_id="dataset-bad",
+        catalog_resource_id="resource-bad",
+        evidence_snapshot_id="snapshot-1",
         outcome="INSUFFICIENT_EVIDENCE",
     )
     assert repository.record_candidate_outcome(outcome) == outcome
@@ -153,6 +156,9 @@ def test_finalization_recomputed_from_receipts_and_replay_safe() -> None:
                 operation_key="outcome:run-a:late",
                 run_id="run-a",
                 resource_key="late",
+                catalog_dataset_id="dataset-late",
+                catalog_resource_id="resource-late",
+                evidence_snapshot_id="snapshot-1",
                 outcome="INSUFFICIENT_EVIDENCE",
             )
         )

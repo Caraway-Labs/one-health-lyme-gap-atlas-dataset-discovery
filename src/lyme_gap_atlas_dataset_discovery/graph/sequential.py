@@ -558,10 +558,16 @@ def build_graph(deps: GraphDependencies) -> Any:
     def record_candidate_outcome(state: DatasetDiscoveryState) -> DatasetDiscoveryState:
         reason = state.get("candidate_outcome_reason") or "ABSTAIN"
         operation_key = f"outcome:{state['run_id']}:{_current(state)}"
+        candidate = state["current_candidate"]
+        if candidate is None:
+            raise ValueError("candidate outcome lacks canonical identity")
         requested = CandidateOutcomeReceipt(
             operation_key=operation_key,
             run_id=state["run_id"],
             resource_key=_current(state),
+            catalog_dataset_id=candidate.identity.catalog_dataset_id,
+            catalog_resource_id=candidate.identity.catalog_resource_id,
+            evidence_snapshot_id=state["evidence_snapshot_id"],
             outcome=reason,
             reason_code=reason,
         )
