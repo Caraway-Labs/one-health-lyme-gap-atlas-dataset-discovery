@@ -38,7 +38,7 @@ from .budgets import (
     charge_budget,
     remaining_budget,
 )
-from .planner import CandidatePlanner
+from .planner import CandidatePlanner, ModelAllowance, PlannerResult
 from .state import STATE_VERSION, DatasetDiscoveryState, clear_candidate_state
 
 
@@ -63,6 +63,14 @@ class RetryExhausted(RuntimeError):
     def __init__(self, cause: ConnectionError | TimeoutError, usage: BudgetUsage) -> None:
         super().__init__(type(cause).__name__)
         self.cause = cause
+        self.usage = usage
+
+
+class ReportedUsageExceeded(BudgetExceeded):
+    """A model exceeded its allowance; retain measured usage in the run state."""
+
+    def __init__(self, usage: BudgetUsage) -> None:
+        super().__init__("model reported usage beyond per-call allowance")
         self.usage = usage
 
 
@@ -131,6 +139,42 @@ def _current(state: DatasetDiscoveryState) -> str:
     if candidate_id is None:
         raise ValueError("no current candidate")
     return candidate_id
+
+
+def _model_allowance(usage: BudgetUsage, limits: BudgetLimit) -> ModelAllowance:
+    remaining = remaining_budget(usage, limits)
+    return ModelAllowance(
+        max_input_tokens=remaining["input_tokens"],
+        max_output_tokens=remaining["output_tokens"],
+        max_estimated_spend_cents=remaining["estimated_spend_cents"],
+    )
+
+
+def _charge_model_result[T](
+    result: PlannerResult[T], usage: BudgetUsage, limits: BudgetLimit, allowance: ModelAllowance
+) -> tuple[T, BudgetUsage]:
+    report = result.usage
+    measured = usage.model_copy(
+        update={
+            "input_tokens": usage.input_tokens + report.input_tokens,
+            "output_tokens": usage.output_tokens + report.output_tokens,
+            "estimated_spend_cents": (usage.estimated_spend_cents + report.estimated_spend_cents),
+        }
+    )
+    if (
+        report.input_tokens > allowance.max_input_tokens
+        or report.output_tokens > allowance.max_output_tokens
+        or report.estimated_spend_cents > allowance.max_estimated_spend_cents
+    ):
+        raise ReportedUsageExceeded(measured)
+    charged = charge_budget(
+        usage,
+        limits,
+        input_tokens=report.input_tokens,
+        output_tokens=report.output_tokens,
+        estimated_spend_cents=report.estimated_spend_cents,
+    )
+    return result.value, charged
 
 
 def build_graph(deps: GraphDependencies) -> Any:
@@ -307,14 +351,18 @@ def build_graph(deps: GraphDependencies) -> Any:
         candidate = state["current_candidate"]
         if candidate is None:
             raise ValueError("no candidate selected")
-        relationship, usage = _bounded_call(
-            call=lambda: deps.planner.relationship(candidate, state["current_observations"]),
+        allowance = _model_allowance(state["usage"], state["limits"])
+        response, usage = _bounded_call(
+            call=lambda: deps.planner.relationship(
+                candidate, state["current_observations"], allowance=allowance
+            ),
             usage=state["usage"],
             limits=state["limits"],
             dimension="model_calls",
             retries=state["limits"].retries_per_operation,
             sleep=deps.sleep,
         )
+        relationship, usage = _charge_model_result(response, usage, state["limits"], allowance)
         result: DatasetDiscoveryState = {"usage": usage, "current_relationship": relationship}
         if relationship.relationship in {Relationship.EXACT_DUPLICATE, Relationship.ALREADY_KNOWN}:
             result["candidate_outcome_reason"] = relationship.relationship.value
@@ -325,13 +373,19 @@ def build_graph(deps: GraphDependencies) -> Any:
         relation = state["current_relationship"]
         if candidate is None or relation is None:
             raise ValueError("candidate relationship missing")
-        (analysis, dimensions), usage = _bounded_call(
-            call=lambda: deps.planner.classify(candidate, state["current_observations"]),
+        allowance = _model_allowance(state["usage"], state["limits"])
+        response, usage = _bounded_call(
+            call=lambda: deps.planner.classify(
+                candidate, state["current_observations"], allowance=allowance
+            ),
             usage=state["usage"],
             limits=state["limits"],
             dimension="model_calls",
             retries=state["limits"].retries_per_operation,
             sleep=deps.sleep,
+        )
+        (analysis, dimensions), usage = _charge_model_result(
+            response, usage, state["limits"], allowance
         )
         version_id = _stable_id("recommendation-version-v1", state["run_id"], _current(state))
         ranking_input = PriorityInput(
@@ -358,14 +412,16 @@ def build_graph(deps: GraphDependencies) -> Any:
         analysis = state["current_analysis"]
         if analysis is None:
             raise ValueError("candidate analysis missing")
-        rationale, usage = _bounded_call(
-            call=lambda: deps.planner.rationale(analysis),
+        allowance = _model_allowance(state["usage"], state["limits"])
+        response, usage = _bounded_call(
+            call=lambda: deps.planner.rationale(analysis, allowance=allowance),
             usage=state["usage"],
             limits=state["limits"],
             dimension="model_calls",
             retries=state["limits"].retries_per_operation,
             sleep=deps.sleep,
         )
+        rationale, usage = _charge_model_result(response, usage, state["limits"], allowance)
         return {
             "usage": usage,
             "current_analysis": analysis.model_copy(update={"rationale_claims": rationale}),
@@ -375,14 +431,16 @@ def build_graph(deps: GraphDependencies) -> Any:
         analysis = state["current_analysis"]
         if analysis is None:
             raise ValueError("candidate analysis missing")
-        proposals, usage = _bounded_call(
-            call=lambda: deps.planner.proposals(analysis),
+        allowance = _model_allowance(state["usage"], state["limits"])
+        response, usage = _bounded_call(
+            call=lambda: deps.planner.proposals(analysis, allowance=allowance),
             usage=state["usage"],
             limits=state["limits"],
             dimension="model_calls",
             retries=state["limits"].retries_per_operation,
             sleep=deps.sleep,
         )
+        proposals, usage = _charge_model_result(response, usage, state["limits"], allowance)
         return {
             "usage": usage,
             "current_proposals": proposals,
@@ -545,7 +603,15 @@ def build_graph(deps: GraphDependencies) -> Any:
                 result["remaining_run_budget"] = remaining_budget(final_usage, state["limits"])
                 return result
             except BudgetExceeded as error:
-                return {"stop_reason": str(error), "final_status": "BUDGET_STOPPED"}
+                measured_usage = (
+                    error.usage if isinstance(error, ReportedUsageExceeded) else state["usage"]
+                )
+                return {
+                    "stop_reason": str(error),
+                    "final_status": "BUDGET_STOPPED",
+                    "usage": measured_usage,
+                    "remaining_run_budget": remaining_budget(measured_usage, state["limits"]),
+                }
             except Exception as error:
                 cause = error.cause if isinstance(error, RetryExhausted) else error
                 code = f"{name}:{type(cause).__name__}"

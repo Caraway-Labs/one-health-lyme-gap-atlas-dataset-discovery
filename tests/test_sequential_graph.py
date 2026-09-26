@@ -32,7 +32,12 @@ from lyme_gap_atlas_dataset_discovery.domain.ranking import (
 )
 from lyme_gap_atlas_dataset_discovery.domain.relationships import RelationshipResult
 from lyme_gap_atlas_dataset_discovery.graph.budgets import PROFILE_DEFAULTS, RunProfile
-from lyme_gap_atlas_dataset_discovery.graph.planner import FakeCandidatePlanner, FixturePlan
+from lyme_gap_atlas_dataset_discovery.graph.planner import (
+    FakeCandidatePlanner,
+    FixturePlan,
+    ModelUsage,
+    PlannerResult,
+)
 from lyme_gap_atlas_dataset_discovery.graph.sequential import (
     GraphDependencies,
     PolicyViolation,
@@ -363,7 +368,7 @@ def test_policy_violation_stops_whole_run() -> None:
     candidate, observations, plan = fixture("candidate")
 
     class UnsafePlanner(FakeCandidatePlanner):
-        def relationship(self, candidate, observations):  # type: ignore[no-untyped-def]
+        def relationship(self, candidate, observations, *, allowance):  # type: ignore[no-untyped-def]
             raise PolicyViolation("catalog text attempted authority escalation")
 
     repository = FakeRecommendationRepository()
@@ -397,11 +402,11 @@ def test_transient_reader_and_model_errors_retry_with_attempts_charged() -> None
     class FlakyPlanner(FakeCandidatePlanner):
         attempts = 0
 
-        def relationship(self, candidate, observations):  # type: ignore[no-untyped-def]
+        def relationship(self, candidate, observations, *, allowance):  # type: ignore[no-untyped-def]
             self.attempts += 1
             if self.attempts == 1:
                 raise ConnectionError("temporary model failure")
-            return super().relationship(candidate, observations)
+            return super().relationship(candidate, observations, allowance=allowance)
 
     reader = FlakyReader(candidates=(candidate,), observations={"candidate": observations})
     planner = FlakyPlanner({"candidate": plan})
@@ -430,7 +435,7 @@ def test_exhausted_model_retries_record_candidate_and_charge_attempts() -> None:
     candidate, observations, plan = fixture("candidate")
 
     class DownPlanner(FakeCandidatePlanner):
-        def relationship(self, candidate, observations):  # type: ignore[no-untyped-def]
+        def relationship(self, candidate, observations, *, allowance):  # type: ignore[no-untyped-def]
             raise TimeoutError("temporary provider outage")
 
     repository = FakeRecommendationRepository()
@@ -488,3 +493,47 @@ def test_nonfixture_run_requires_matching_governed_context() -> None:
     mismatch = graph.invoke(wrong_fingerprint, config={"recursion_limit": 100})
     assert mismatch["final_status"] == "FAILED"
     assert repository.finalizations["run-2"].status == "FAILED"
+
+
+def test_reported_model_usage_is_charged_and_overspend_stops_before_write() -> None:
+    candidate, observations, plan = fixture("candidate")
+
+    class MeteredPlanner(FakeCandidatePlanner):
+        def relationship(self, candidate, observations, *, allowance):  # type: ignore[no-untyped-def]
+            result = super().relationship(candidate, observations, allowance=allowance)
+            return PlannerResult(
+                result.value,
+                ModelUsage(input_tokens=100, output_tokens=20, estimated_spend_cents=3),
+            )
+
+    reader = FakeCandidateReader(candidates=(candidate,), observations={"candidate": observations})
+    repository = FakeRecommendationRepository()
+    graph = build_graph(
+        GraphDependencies(
+            reader=reader,
+            repository=repository,
+            planner=MeteredPlanner({"candidate": plan}),
+            context_reader=fixture_context(),
+        )
+    )
+    state = input_state()
+    state["profile"] = RunProfile.DEV_MANUAL
+    state["limits"] = PROFILE_DEFAULTS[RunProfile.DEV_MANUAL]
+    result = graph.invoke(state, config={"recursion_limit": 100})
+    assert result["final_status"] == "SUCCEEDED_WITH_RECOMMENDATIONS"
+    assert result["usage"].input_tokens == 100
+    assert result["usage"].output_tokens == 20
+    assert result["usage"].estimated_spend_cents == 3
+
+    fixture_repository = FakeRecommendationRepository()
+    fixture_graph = build_graph(
+        GraphDependencies(
+            reader=reader,
+            repository=fixture_repository,
+            planner=MeteredPlanner({"candidate": plan}),
+        )
+    )
+    stopped = fixture_graph.invoke(input_state(run_id="run-2"), config={"recursion_limit": 100})
+    assert stopped["final_status"] == "BUDGET_STOPPED"
+    assert stopped["usage"].estimated_spend_cents == 3
+    assert fixture_repository.recommendations == {}
