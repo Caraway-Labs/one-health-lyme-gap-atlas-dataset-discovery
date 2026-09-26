@@ -98,7 +98,7 @@ class RunCreateMetadata(StrictModel):
     @property
     def request_fingerprint(self) -> str:
         fields = self.model_dump(exclude={"trace_id", "host_session_id"})
-        canonical = json.dumps(fields, sort_keys=True, separators=(",", ":"))
+        canonical = json.dumps(fields, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
