@@ -14,6 +14,7 @@ from lyme_gap_atlas_dataset_discovery.domain.analysis import validate_analysis
 from lyme_gap_atlas_dataset_discovery.domain.models import (
     CandidateOutcomeReceipt,
     RecommendationIdentity,
+    RunCreateMetadata,
     RunFinalizationReceipt,
     RunReceipt,
 )
@@ -248,16 +249,36 @@ def build_graph(deps: GraphDependencies) -> Any:
         }
 
     def create_run(state: DatasetDiscoveryState) -> DatasetDiscoveryState:
+        metadata = RunCreateMetadata(
+            mode=state["profile"].value,
+            trigger_type=state["trigger_type"],
+            code_sha=state["code_sha"],
+            spec_version=state["spec_version"],
+            graph_version=state["graph_version"],
+            config_fingerprint=state["config_fingerprint"],
+            search_fingerprint=state["search_fingerprint"],
+            evidence_snapshot_id=state["evidence_snapshot_id"],
+            provider=state.get("model_provider"),
+            model_id=state.get("model_id"),
+            model_fingerprint=state.get("model_fingerprint"),
+            prompt_versions=state.get("prompt_versions", {}),
+            tool_versions=state.get("tool_versions", {}),
+            eval_version=state.get("eval_version"),
+            trace_id=state.get("trace_id"),
+            host_session_id=state.get("host_session_id"),
+        )
         receipt: RunReceipt = _deliver_with_receipt_reconciliation(
             send=lambda: deps.repository.create_run(
                 operation_key=state["execution_key"],
                 run_id=state["requested_run_id"],
+                metadata=metadata,
                 retry_of_run_id=state.get("retry_of_run_id"),
             ),
             lookup=lambda: deps.repository.get_run(state["execution_key"]),
             accepts=lambda item: (
                 item.operation_key == state["execution_key"]
                 and item.retry_of_run_id == state.get("retry_of_run_id")
+                and item.request_fingerprint == metadata.request_fingerprint
             ),
             retries=state["limits"].retries_per_operation,
             sleep=deps.sleep,

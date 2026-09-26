@@ -11,6 +11,7 @@ from lyme_gap_atlas_dataset_discovery.domain.models import (
     DiscoveryContext,
     EvidenceRef,
     RecommendationWriteReceipt,
+    RunCreateMetadata,
     RunFinalizationReceipt,
     RunReceipt,
 )
@@ -81,18 +82,30 @@ class FakeDiscoveryContextReader:
 @dataclass
 class FakeRecommendationRepository:
     runs: dict[str, RunReceipt] = field(default_factory=dict)
+    run_metadata: dict[str, RunCreateMetadata] = field(default_factory=dict)
     outcomes: dict[str, CandidateOutcomeReceipt] = field(default_factory=dict)
     recommendations: dict[str, RecommendationWriteReceipt] = field(default_factory=dict)
     recommendation_bundles: dict[str, RecommendationWrite] = field(default_factory=dict)
     finalizations: dict[str, RunFinalizationReceipt] = field(default_factory=dict)
 
     def create_run(
-        self, *, operation_key: str, run_id: str, retry_of_run_id: str | None = None
+        self,
+        *,
+        operation_key: str,
+        run_id: str,
+        metadata: RunCreateMetadata | None = None,
+        retry_of_run_id: str | None = None,
     ) -> RunReceipt:
         existing = self.runs.get(operation_key)
         if existing is not None:
             if existing.retry_of_run_id != retry_of_run_id:
                 raise ValueError("operation key reused with conflicting retry lineage")
+            if (
+                metadata is not None
+                and (previous_metadata := self.run_metadata.get(operation_key)) is not None
+                and previous_metadata.request_fingerprint != metadata.request_fingerprint
+            ):
+                raise ValueError("operation key reused with conflicting run metadata")
             return existing
         if any(receipt.run_id == run_id for receipt in self.runs.values()):
             raise ValueError("run ID already exists under another operation key")
@@ -106,9 +119,14 @@ class FakeRecommendationRepository:
             }:
                 raise ValueError("explicit retry requires a retry-eligible terminal prior run")
         receipt = RunReceipt(
-            run_id=run_id, operation_key=operation_key, retry_of_run_id=retry_of_run_id
+            run_id=run_id,
+            operation_key=operation_key,
+            retry_of_run_id=retry_of_run_id,
+            request_fingerprint=metadata.request_fingerprint if metadata else None,
         )
         self.runs[operation_key] = receipt
+        if metadata is not None:
+            self.run_metadata[operation_key] = metadata
         return receipt
 
     def get_run(self, operation_key: str) -> RunReceipt | None:

@@ -9,8 +9,37 @@ from lyme_gap_atlas_dataset_discovery.domain.models import (
     CandidateIdentity,
     CandidateSummary,
     EvidenceRef,
+    RunCreateMetadata,
     RunFinalizationReceipt,
 )
+
+
+def test_run_metadata_replay_ignores_new_transport_trace_but_rejects_new_config() -> None:
+    metadata = RunCreateMetadata(
+        mode="FIXTURE",
+        trigger_type="MANUAL_FIXTURE",
+        code_sha="a" * 40,
+        spec_version="v1",
+        graph_version="v1",
+        config_fingerprint="b" * 64,
+        search_fingerprint="c" * 64,
+        evidence_snapshot_id="snapshot-1",
+        trace_id="first-trace",
+    )
+    repository = FakeRecommendationRepository()
+    first = repository.create_run(operation_key="execution-1", run_id="run-1", metadata=metadata)
+    replay = repository.create_run(
+        operation_key="execution-1",
+        run_id="new-requested-id",
+        metadata=metadata.model_copy(update={"trace_id": "second-trace"}),
+    )
+    assert replay == first
+    with pytest.raises(ValueError, match="conflicting run metadata"):
+        repository.create_run(
+            operation_key="execution-1",
+            run_id="new-requested-id",
+            metadata=metadata.model_copy(update={"config_fingerprint": "d" * 64}),
+        )
 
 
 def test_fake_reader_pages_in_stable_order() -> None:

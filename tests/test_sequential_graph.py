@@ -21,6 +21,7 @@ from lyme_gap_atlas_dataset_discovery.domain.models import (
     EvidenceRef,
     ObservedFact,
     RecommendationWriteReceipt,
+    RunCreateMetadata,
     RunFinalizationReceipt,
     RunReceipt,
 )
@@ -157,6 +158,10 @@ def test_valid_candidate_persists_and_finalizes() -> None:
     assert result["remaining_run_budget"]["candidates"] == 4
     assert len(repository.recommendations) == 1
     assert repository.finalizations["run-1"].recommendation_count == 1
+    metadata = repository.run_metadata["execution:run-1"]
+    assert metadata.mode == "FIXTURE"
+    assert metadata.evidence_snapshot_id == "fixture-snapshot"
+    assert repository.runs["execution:run-1"].request_fingerprint == metadata.request_fingerprint
 
 
 def test_insufficient_candidate_does_not_stop_next_candidate() -> None:
@@ -298,10 +303,18 @@ def test_lost_commit_acknowledgments_reconcile_all_business_writes() -> None:
             self.lost: set[str] = set()
 
         def create_run(
-            self, *, operation_key: str, run_id: str, retry_of_run_id: str | None = None
+            self,
+            *,
+            operation_key: str,
+            run_id: str,
+            metadata: RunCreateMetadata | None = None,
+            retry_of_run_id: str | None = None,
         ) -> RunReceipt:
             result = super().create_run(
-                operation_key=operation_key, run_id=run_id, retry_of_run_id=retry_of_run_id
+                operation_key=operation_key,
+                run_id=run_id,
+                metadata=metadata,
+                retry_of_run_id=retry_of_run_id,
             )
             if "run" not in self.lost:
                 self.lost.add("run")

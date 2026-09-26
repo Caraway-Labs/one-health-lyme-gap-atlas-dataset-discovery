@@ -26,6 +26,8 @@ Run state contains run ID, mode/trigger, timestamps, code/spec/graph/config/sear
 
 `RUNS` is created before catalog reads. Candidate outcomes are committed individually. Successful runs finalize counters and one of `SUCCEEDED_WITH_RECOMMENDATIONS`, `SUCCEEDED_NO_NEW_CANDIDATES`, `PARTIAL`, `BUDGET_STOPPED`, `FAILED`, or `CANCELLED`. Progress heartbeat is optional; intermediate graph mutations need not be durable. Interrupted finalization is reconciled from committed outcomes and never silently marked successful.
 
+The create-run port sends typed, immutable run metadata matching the data-owned `RUNS` record: profile/trigger, code/spec/graph/config/search versions, evidence snapshot, and optional model/evaluation identifiers. The request fingerprint covers these identity fields while excluding transport trace and hosted session IDs, so a delivery retry with the same execution key can reconcile to its original run even after a new tracing session starts. Snowflake assigns creation time at first commit; a new explicit retry uses a new execution key and `retry_of_run_id`.
+
 ## Evidence and identity
 
 `ObservedFact` cites a stable catalog observation/evidence ID and immutable metadata hash when available. `Inference` cites observed fact IDs and records uncertainty. `Unknown` records a missing/blocked reason. Unknowns never become asserted facts. Store references rather than restricted raw payloads or hidden model reasoning.

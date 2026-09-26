@@ -1,5 +1,7 @@
 """Versioned, source-attributable domain values for the v1 contract."""
 
+import hashlib
+import json
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -70,6 +72,34 @@ class RunReceipt(StrictModel):
     run_id: str = Field(min_length=1)
     operation_key: str = Field(min_length=1)
     retry_of_run_id: str | None = None
+    request_fingerprint: str | None = None
+
+
+class RunCreateMetadata(StrictModel):
+    """Immutable run request fields; creation time is assigned by Snowflake."""
+
+    mode: str = Field(min_length=1)
+    trigger_type: str = Field(min_length=1)
+    code_sha: str = Field(min_length=40, max_length=40)
+    spec_version: str = Field(min_length=1)
+    graph_version: str = Field(min_length=1)
+    config_fingerprint: str = Field(min_length=64, max_length=64)
+    search_fingerprint: str = Field(min_length=64, max_length=64)
+    evidence_snapshot_id: str = Field(min_length=1)
+    provider: str | None = None
+    model_id: str | None = None
+    model_fingerprint: str | None = None
+    prompt_versions: dict[str, str] = Field(default_factory=dict)
+    tool_versions: dict[str, str] = Field(default_factory=dict)
+    eval_version: str | None = None
+    trace_id: str | None = None
+    host_session_id: str | None = None
+
+    @property
+    def request_fingerprint(self) -> str:
+        fields = self.model_dump(exclude={"trace_id", "host_session_id"})
+        canonical = json.dumps(fields, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 class RecommendationIdentity(StrictModel):

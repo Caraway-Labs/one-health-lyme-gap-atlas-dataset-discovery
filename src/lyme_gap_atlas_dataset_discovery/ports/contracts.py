@@ -11,6 +11,7 @@ from lyme_gap_atlas_dataset_discovery.domain.models import (
     DiscoveryContext,
     EvidenceRef,
     RecommendationWriteReceipt,
+    RunCreateMetadata,
     RunFinalizationReceipt,
     RunReceipt,
 )
@@ -39,7 +40,12 @@ class CandidateReader(Protocol):
 
 class RecommendationRepository(Protocol):
     def create_run(
-        self, *, operation_key: str, run_id: str, retry_of_run_id: str | None = None
+        self,
+        *,
+        operation_key: str,
+        run_id: str,
+        metadata: RunCreateMetadata,
+        retry_of_run_id: str | None = None,
     ) -> RunReceipt: ...
 
     def get_run(self, operation_key: str) -> RunReceipt | None: ...
