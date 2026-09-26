@@ -120,6 +120,9 @@ class FakeRecommendationRepository:
         self.outcomes[receipt.operation_key] = receipt
         return receipt
 
+    def get_candidate_outcome(self, operation_key: str) -> CandidateOutcomeReceipt | None:
+        return self.outcomes.get(operation_key)
+
     def save_recommendation(self, request: RecommendationWrite) -> RecommendationWriteReceipt:
         request = RecommendationWrite.model_validate(request.model_dump())
         self._require_run(request.identity.run_id)
@@ -153,6 +156,9 @@ class FakeRecommendationRepository:
         self.recommendations[receipt.operation_key] = receipt
         return receipt
 
+    def get_recommendation(self, operation_key: str) -> RecommendationWriteReceipt | None:
+        return self.recommendations.get(operation_key)
+
     def finalize_run(self, receipt: RunFinalizationReceipt) -> RunFinalizationReceipt:
         self._require_run(receipt.run_id)
         previous = self.finalizations.get(receipt.run_id)
@@ -170,6 +176,9 @@ class FakeRecommendationRepository:
             raise ValueError("recommendation count differs from durable versions")
         self.finalizations[receipt.run_id] = receipt
         return receipt
+
+    def get_finalization(self, run_id: str) -> RunFinalizationReceipt | None:
+        return self.finalizations.get(run_id)
 
     def _require_run(self, run_id: str) -> None:
         if not any(item.run_id == run_id for item in self.runs.values()):

@@ -26,6 +26,7 @@ class DatasetDiscoveryState(TypedDict, total=False):
     trigger_type: str
     started_at: str
     deadline_at: str
+    cancel_requested: bool
     code_sha: str
     spec_version: str
     graph_version: str

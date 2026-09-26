@@ -1,5 +1,7 @@
 """The compiled graph iterates candidates and persists final run outcomes."""
 
+from datetime import UTC, datetime
+
 from lyme_gap_atlas_dataset_discovery.adapters.fake import (
     FakeCandidateReader,
     FakeRecommendationRepository,
@@ -12,10 +14,15 @@ from lyme_gap_atlas_dataset_discovery.domain.analysis import (
 )
 from lyme_gap_atlas_dataset_discovery.domain.models import (
     CandidateIdentity,
+    CandidateOutcomeReceipt,
     CandidateSummary,
     EvidenceRef,
     ObservedFact,
+    RecommendationWriteReceipt,
+    RunFinalizationReceipt,
+    RunReceipt,
 )
+from lyme_gap_atlas_dataset_discovery.domain.persistence import RecommendationWrite
 from lyme_gap_atlas_dataset_discovery.domain.ranking import (
     Dimension,
     RankingDimensions,
@@ -24,7 +31,11 @@ from lyme_gap_atlas_dataset_discovery.domain.ranking import (
 from lyme_gap_atlas_dataset_discovery.domain.relationships import RelationshipResult
 from lyme_gap_atlas_dataset_discovery.graph.budgets import PROFILE_DEFAULTS, RunProfile
 from lyme_gap_atlas_dataset_discovery.graph.planner import FakeCandidatePlanner, FixturePlan
-from lyme_gap_atlas_dataset_discovery.graph.sequential import GraphDependencies, build_graph
+from lyme_gap_atlas_dataset_discovery.graph.sequential import (
+    GraphDependencies,
+    PolicyViolation,
+    build_graph,
+)
 
 
 def fixture(
@@ -209,4 +220,147 @@ def test_systemic_batch_reader_error_finalizes_failed_run() -> None:
     result = graph.invoke(input_state(), config={"recursion_limit": 100})
     assert result["final_status"] == "FAILED"
     assert result["stop_reason"] == "load_candidate_batch:ConnectionError"
+    assert repository.finalizations["run-1"].status == "FAILED"
+
+
+def test_cancellation_creates_and_finalizes_run() -> None:
+    repository = FakeRecommendationRepository()
+    graph = build_graph(
+        GraphDependencies(
+            reader=FakeCandidateReader(),
+            repository=repository,
+            planner=FakeCandidatePlanner({}),
+            cancellation_requested=lambda: True,
+        )
+    )
+    result = graph.invoke(input_state(), config={"recursion_limit": 100})
+    assert result["final_status"] == "CANCELLED"
+    assert repository.finalizations["run-1"].status == "CANCELLED"
+
+
+def test_expired_deadline_durably_stops_run() -> None:
+    calls = 0
+
+    def advancing_clock() -> datetime:
+        nonlocal calls
+        calls += 1
+        return datetime(2026, 9, 26, 0, 0, calls, tzinfo=UTC)
+
+    repository = FakeRecommendationRepository()
+    graph = build_graph(
+        GraphDependencies(
+            reader=FakeCandidateReader(),
+            repository=repository,
+            planner=FakeCandidatePlanner({}),
+            clock=advancing_clock,
+        )
+    )
+    state = input_state()
+    state["deadline_at"] = "2026-09-26T00:00:01+00:00"
+    result = graph.invoke(state, config={"recursion_limit": 100})
+    assert result["final_status"] == "BUDGET_STOPPED"
+    assert result["stop_reason"] == "DEADLINE_EXHAUSTED"
+    assert repository.finalizations["run-1"].status == "BUDGET_STOPPED"
+
+
+def test_lost_commit_acknowledgments_reconcile_all_business_writes() -> None:
+    class LostAckRepository(FakeRecommendationRepository):
+        def __init__(self) -> None:
+            super().__init__()
+            self.lost: set[str] = set()
+
+        def create_run(
+            self, *, operation_key: str, run_id: str, retry_of_run_id: str | None = None
+        ) -> RunReceipt:
+            result = super().create_run(
+                operation_key=operation_key, run_id=run_id, retry_of_run_id=retry_of_run_id
+            )
+            if "run" not in self.lost:
+                self.lost.add("run")
+                raise ConnectionError("ack lost after run commit")
+            return result
+
+        def record_candidate_outcome(
+            self, receipt: CandidateOutcomeReceipt
+        ) -> CandidateOutcomeReceipt:
+            result = super().record_candidate_outcome(receipt)
+            if "outcome" not in self.lost:
+                self.lost.add("outcome")
+                raise ConnectionError("ack lost after outcome commit")
+            return result
+
+        def save_recommendation(self, request: RecommendationWrite) -> RecommendationWriteReceipt:
+            result = super().save_recommendation(request)
+            if "recommendation" not in self.lost:
+                self.lost.add("recommendation")
+                raise ConnectionError("ack lost after recommendation commit")
+            return result
+
+        def finalize_run(self, receipt: RunFinalizationReceipt) -> RunFinalizationReceipt:
+            result = super().finalize_run(receipt)
+            if "finalization" not in self.lost:
+                self.lost.add("finalization")
+                raise ConnectionError("ack lost after finalization commit")
+            return result
+
+    bad, _, bad_plan = fixture("bad", with_evidence=False)
+    good, observations, good_plan = fixture("good")
+    repository = LostAckRepository()
+    graph = build_graph(
+        GraphDependencies(
+            reader=FakeCandidateReader(candidates=(bad, good), observations={"good": observations}),
+            repository=repository,
+            planner=FakeCandidatePlanner({"bad": bad_plan, "good": good_plan}),
+        )
+    )
+    result = graph.invoke(input_state(), config={"recursion_limit": 100})
+    assert result["final_status"] == "SUCCEEDED_WITH_RECOMMENDATIONS"
+    assert repository.lost == {"run", "outcome", "recommendation", "finalization"}
+    assert len(repository.runs) == 1
+    assert len(repository.outcomes) == 1
+    assert len(repository.recommendations) == 1
+    assert len(repository.finalizations) == 1
+
+
+def test_evidence_reader_outage_is_systemic() -> None:
+    candidate, _, plan = fixture("candidate")
+
+    class BrokenEvidenceReader(FakeCandidateReader):
+        def get_observations(self, candidate_id: str, *, limit: int):  # type: ignore[no-untyped-def]
+            raise ConnectionError("provider unavailable")
+
+    repository = FakeRecommendationRepository()
+    graph = build_graph(
+        GraphDependencies(
+            reader=BrokenEvidenceReader(candidates=(candidate,)),
+            repository=repository,
+            planner=FakeCandidatePlanner({"candidate": plan}),
+        )
+    )
+    result = graph.invoke(input_state(), config={"recursion_limit": 100})
+    assert result["final_status"] == "FAILED"
+    assert result["stop_reason"] == "assess_evidence_sufficiency:ConnectionError"
+    assert repository.finalizations["run-1"].status == "FAILED"
+
+
+def test_policy_violation_stops_whole_run() -> None:
+    candidate, observations, plan = fixture("candidate")
+
+    class UnsafePlanner(FakeCandidatePlanner):
+        def relationship(self, candidate, observations):  # type: ignore[no-untyped-def]
+            raise PolicyViolation("catalog text attempted authority escalation")
+
+    repository = FakeRecommendationRepository()
+    graph = build_graph(
+        GraphDependencies(
+            reader=FakeCandidateReader(
+                candidates=(candidate,), observations={"candidate": observations}
+            ),
+            repository=repository,
+            planner=UnsafePlanner({"candidate": plan}),
+        )
+    )
+    result = graph.invoke(input_state(), config={"recursion_limit": 100})
+    assert result["final_status"] == "FAILED"
+    assert result["stop_reason"] == "analyze_candidate_relationship:PolicyViolation"
     assert repository.finalizations["run-1"].status == "FAILED"

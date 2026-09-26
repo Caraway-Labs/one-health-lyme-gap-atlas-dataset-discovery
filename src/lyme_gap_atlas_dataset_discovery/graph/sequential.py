@@ -2,8 +2,10 @@
 
 import hashlib
 import json
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from langgraph.graph import END, START, StateGraph
@@ -13,6 +15,7 @@ from lyme_gap_atlas_dataset_discovery.domain.models import (
     CandidateOutcomeReceipt,
     RecommendationIdentity,
     RunFinalizationReceipt,
+    RunReceipt,
 )
 from lyme_gap_atlas_dataset_discovery.domain.persistence import RecommendationWrite
 from lyme_gap_atlas_dataset_discovery.domain.ranking import (
@@ -35,6 +38,45 @@ class GraphDependencies:
     reader: CandidateReader
     repository: RecommendationRepository
     planner: CandidatePlanner
+    clock: Callable[[], datetime] = lambda: datetime.now(UTC)
+    cancellation_requested: Callable[[], bool] = lambda: False
+    sleep: Callable[[float], None] = time.sleep
+
+
+class PolicyViolation(RuntimeError):
+    """Unrecoverable authority or security boundary failure."""
+
+
+def _deliver_with_receipt_reconciliation[ReceiptT](
+    *,
+    send: Callable[[], ReceiptT],
+    lookup: Callable[[], ReceiptT | None],
+    accepts: Callable[[ReceiptT], bool],
+    retries: int,
+    sleep: Callable[[float], None],
+) -> ReceiptT:
+    """Resolve a lost commit acknowledgment before resending an idempotent key."""
+    for attempt in range(retries + 1):
+        try:
+            receipt = send()
+            if not accepts(receipt):
+                raise ValueError("write returned a conflicting receipt")
+            return receipt
+        except (ConnectionError, TimeoutError):
+            try:
+                committed = lookup()
+            except (ConnectionError, TimeoutError):
+                committed = None
+            if committed is not None:
+                if not accepts(committed):
+                    raise ValueError(
+                        "committed receipt conflicts with requested operation"
+                    ) from None
+                return committed
+            if attempt == retries:
+                raise
+            sleep(min(0.25 * 2**attempt, 2.0))
+    raise AssertionError("bounded retry loop unexpectedly exhausted")
 
 
 def _stable_id(*parts: str) -> str:
@@ -72,8 +114,21 @@ def build_graph(deps: GraphDependencies) -> Any:
             limits=state["limits"],
             price_table_version=state.get("price_table_version"),
         )
+        now = deps.clock()
+        if now.tzinfo is None:
+            raise ValueError("clock must be timezone aware")
+        latest_deadline = now + timedelta(seconds=state["limits"].elapsed_seconds)
+        requested_deadline = state.get("deadline_at")
+        deadline = (
+            datetime.fromisoformat(requested_deadline) if requested_deadline else latest_deadline
+        )
+        if deadline.tzinfo is None:
+            raise ValueError("deadline must be timezone aware")
+        deadline = min(deadline, latest_deadline)
         return {
             "state_version": STATE_VERSION,
+            "started_at": now.isoformat(),
+            "deadline_at": deadline.isoformat(),
             "usage": BudgetUsage(),
             "remaining_run_budget": remaining_budget(BudgetUsage(), state["limits"]),
             "candidate_queue": (),
@@ -92,10 +147,19 @@ def build_graph(deps: GraphDependencies) -> Any:
         }
 
     def create_run(state: DatasetDiscoveryState) -> DatasetDiscoveryState:
-        receipt = deps.repository.create_run(
-            operation_key=state["execution_key"],
-            run_id=state["requested_run_id"],
-            retry_of_run_id=state.get("retry_of_run_id"),
+        receipt: RunReceipt = _deliver_with_receipt_reconciliation(
+            send=lambda: deps.repository.create_run(
+                operation_key=state["execution_key"],
+                run_id=state["requested_run_id"],
+                retry_of_run_id=state.get("retry_of_run_id"),
+            ),
+            lookup=lambda: deps.repository.get_run(state["execution_key"]),
+            accepts=lambda item: (
+                item.operation_key == state["execution_key"]
+                and item.retry_of_run_id == state.get("retry_of_run_id")
+            ),
+            retries=state["limits"].retries_per_operation,
+            sleep=deps.sleep,
         )
         return {"run_id": receipt.run_id}
 
@@ -269,16 +333,27 @@ def build_graph(deps: GraphDependencies) -> Any:
             resource_key=_current(state),
         )
         operation_key = f"recommendation:{state['run_id']}:{_current(state)}"
-        receipt = deps.repository.save_recommendation(
-            RecommendationWrite(
-                operation_key=operation_key,
-                identity=identity,
-                assertion_sha256=hashlib.sha256(content.encode("utf-8")).hexdigest(),
-                analysis=analysis,
-                ranking_input=ranking_input,
-                priority=priority,
-                relationship=relationship,
-            )
+        request = RecommendationWrite(
+            operation_key=operation_key,
+            identity=identity,
+            assertion_sha256=hashlib.sha256(content.encode("utf-8")).hexdigest(),
+            analysis=analysis,
+            ranking_input=ranking_input,
+            priority=priority,
+            relationship=relationship,
+        )
+        receipt = _deliver_with_receipt_reconciliation(
+            send=lambda: deps.repository.save_recommendation(request),
+            lookup=lambda: deps.repository.get_recommendation(operation_key),
+            accepts=lambda item: (
+                item.operation_key == request.operation_key
+                and item.identity == request.identity
+                and item.assertion_sha256 == request.assertion_sha256
+                and item.evidence_observation_ids == request.evidence_observation_ids
+                and item.proposal_ids == request.proposal_ids
+            ),
+            retries=state["limits"].retries_per_operation,
+            sleep=deps.sleep,
         )
         return {
             "persistence_operation_key": receipt.operation_key,
@@ -292,14 +367,19 @@ def build_graph(deps: GraphDependencies) -> Any:
     def record_candidate_outcome(state: DatasetDiscoveryState) -> DatasetDiscoveryState:
         reason = state.get("candidate_outcome_reason") or "ABSTAIN"
         operation_key = f"outcome:{state['run_id']}:{_current(state)}"
-        deps.repository.record_candidate_outcome(
-            CandidateOutcomeReceipt(
-                operation_key=operation_key,
-                run_id=state["run_id"],
-                resource_key=_current(state),
-                outcome=reason,
-                reason_code=reason,
-            )
+        requested = CandidateOutcomeReceipt(
+            operation_key=operation_key,
+            run_id=state["run_id"],
+            resource_key=_current(state),
+            outcome=reason,
+            reason_code=reason,
+        )
+        _deliver_with_receipt_reconciliation(
+            send=lambda: deps.repository.record_candidate_outcome(requested),
+            lookup=lambda: deps.repository.get_candidate_outcome(operation_key),
+            accepts=lambda item: item == requested,
+            retries=state["limits"].retries_per_operation,
+            sleep=deps.sleep,
         )
         return {
             "processed_candidate_outcomes": (*state["processed_candidate_outcomes"], reason),
@@ -314,15 +394,20 @@ def build_graph(deps: GraphDependencies) -> Any:
         return {"final_status": "SUCCEEDED_NO_NEW_CANDIDATES"}
 
     def finalize_run(state: DatasetDiscoveryState) -> DatasetDiscoveryState:
-        receipt = deps.repository.finalize_run(
-            RunFinalizationReceipt(
-                operation_key=f"finalize:{state['run_id']}",
-                run_id=state["run_id"],
-                status=state["final_status"] or "FAILED",
-                processed_count=state["processed_count"],
-                recommendation_count=len(state["persisted_recommendation_version_ids"]),
-                stop_reason=state.get("stop_reason"),
-            )
+        requested = RunFinalizationReceipt(
+            operation_key=f"finalize:{state['run_id']}",
+            run_id=state["run_id"],
+            status=state["final_status"] or "FAILED",
+            processed_count=state["processed_count"],
+            recommendation_count=len(state["persisted_recommendation_version_ids"]),
+            stop_reason=state.get("stop_reason"),
+        )
+        receipt = _deliver_with_receipt_reconciliation(
+            send=lambda: deps.repository.finalize_run(requested),
+            lookup=lambda: deps.repository.get_finalization(state["run_id"]),
+            accepts=lambda item: item == requested,
+            retries=state["limits"].retries_per_operation,
+            sleep=deps.sleep,
         )
         return {"final_status": receipt.status}
 
@@ -341,7 +426,24 @@ def build_graph(deps: GraphDependencies) -> Any:
     ) -> Callable[[DatasetDiscoveryState], DatasetDiscoveryState]:
         def guarded(state: DatasetDiscoveryState) -> DatasetDiscoveryState:
             try:
-                usage = charge_budget(state["usage"], state["limits"], graph_steps=1)
+                if state.get("run_id") and (
+                    state.get("cancel_requested") or deps.cancellation_requested()
+                ):
+                    return {"stop_reason": "EXPLICIT_CANCELLATION", "final_status": "CANCELLED"}
+                now = deps.clock()
+                if state.get("run_id") and now >= datetime.fromisoformat(state["deadline_at"]):
+                    return {"stop_reason": "DEADLINE_EXHAUSTED", "final_status": "BUDGET_STOPPED"}
+                elapsed = max(
+                    0,
+                    int((now - datetime.fromisoformat(state["started_at"])).total_seconds()),
+                )
+                elapsed_increment = max(0, elapsed - state["usage"].elapsed_seconds)
+                usage = charge_budget(
+                    state["usage"],
+                    state["limits"],
+                    graph_steps=1,
+                    elapsed_seconds=elapsed_increment,
+                )
                 charged: DatasetDiscoveryState = {**state, "usage": usage}
                 result: DatasetDiscoveryState = fn(charged)
                 final_usage = result.get("usage", usage)
@@ -353,7 +455,11 @@ def build_graph(deps: GraphDependencies) -> Any:
             except Exception as error:
                 code = f"{name}:{type(error).__name__}"
                 bounded_errors = (*state.get("bounded_errors", ()), code)[-10:]
-                if name in candidate_analysis_nodes:
+                systemic = isinstance(error, PolicyViolation) or (
+                    name == "assess_evidence_sufficiency"
+                    and isinstance(error, (ConnectionError, TimeoutError))
+                )
+                if name in candidate_analysis_nodes and not systemic:
                     return {
                         "candidate_outcome_reason": "CANDIDATE_ANALYSIS_ERROR",
                         "bounded_errors": bounded_errors,
