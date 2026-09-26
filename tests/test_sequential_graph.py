@@ -364,3 +364,43 @@ def test_policy_violation_stops_whole_run() -> None:
     assert result["final_status"] == "FAILED"
     assert result["stop_reason"] == "analyze_candidate_relationship:PolicyViolation"
     assert repository.finalizations["run-1"].status == "FAILED"
+
+
+def test_transient_reader_and_model_errors_retry_with_attempts_charged() -> None:
+    candidate, observations, plan = fixture("candidate")
+
+    class FlakyReader(FakeCandidateReader):
+        attempts = 0
+
+        def get_observations(self, candidate_id: str, *, limit: int):  # type: ignore[no-untyped-def]
+            self.attempts += 1
+            if self.attempts == 1:
+                raise TimeoutError("temporary reader failure")
+            return super().get_observations(candidate_id, limit=limit)
+
+    class FlakyPlanner(FakeCandidatePlanner):
+        attempts = 0
+
+        def relationship(self, candidate, observations):  # type: ignore[no-untyped-def]
+            self.attempts += 1
+            if self.attempts == 1:
+                raise ConnectionError("temporary model failure")
+            return super().relationship(candidate, observations)
+
+    reader = FlakyReader(candidates=(candidate,), observations={"candidate": observations})
+    planner = FlakyPlanner({"candidate": plan})
+    repository = FakeRecommendationRepository()
+    graph = build_graph(
+        GraphDependencies(
+            reader=reader, repository=repository, planner=planner, sleep=lambda _: None
+        )
+    )
+    state = input_state()
+    state["profile"] = RunProfile.DEV_MANUAL
+    state["limits"] = PROFILE_DEFAULTS[RunProfile.DEV_MANUAL]
+    result = graph.invoke(state, config={"recursion_limit": 100})
+    assert result["final_status"] == "SUCCEEDED_WITH_RECOMMENDATIONS"
+    assert reader.attempts == 2
+    assert planner.attempts == 2
+    assert result["usage"].tool_calls == 3  # page plus two evidence attempts
+    assert result["usage"].model_calls == 5  # relationship twice; remaining nodes once

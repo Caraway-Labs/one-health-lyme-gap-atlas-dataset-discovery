@@ -28,7 +28,14 @@ from lyme_gap_atlas_dataset_discovery.ports.contracts import (
     RecommendationRepository,
 )
 
-from .budgets import BudgetExceeded, BudgetUsage, RunBudgetConfig, charge_budget, remaining_budget
+from .budgets import (
+    BudgetExceeded,
+    BudgetLimit,
+    BudgetUsage,
+    RunBudgetConfig,
+    charge_budget,
+    remaining_budget,
+)
 from .planner import CandidatePlanner
 from .state import STATE_VERSION, DatasetDiscoveryState, clear_candidate_state
 
@@ -81,6 +88,30 @@ def _deliver_with_receipt_reconciliation[ReceiptT](
 
 def _stable_id(*parts: str) -> str:
     return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
+
+
+def _bounded_call[ResultT](
+    *,
+    call: Callable[[], ResultT],
+    usage: BudgetUsage,
+    limits: BudgetLimit,
+    dimension: str,
+    retries: int,
+    sleep: Callable[[float], None],
+) -> tuple[ResultT, BudgetUsage]:
+    """Charge each read/model attempt and retry only transient transport failures."""
+    if dimension not in {"tool_calls", "model_calls"}:
+        raise ValueError("unsupported call budget dimension")
+    current = usage
+    for attempt in range(retries + 1):
+        current = charge_budget(current, limits, **{dimension: 1})
+        try:
+            return call(), current
+        except (ConnectionError, TimeoutError):
+            if attempt == retries:
+                raise
+            sleep(min(0.25 * 2**attempt, 2.0))
+    raise AssertionError("bounded retry loop unexpectedly exhausted")
 
 
 def _current(state: DatasetDiscoveryState) -> str:
@@ -172,8 +203,17 @@ def build_graph(deps: GraphDependencies) -> Any:
         remaining = state["limits"].candidates - state["processed_count"]
         if remaining <= 0:
             return {"stop_reason": "CANDIDATE_BUDGET", "final_status": "BUDGET_STOPPED"}
-        usage = charge_budget(state["usage"], state["limits"], pages=1, tool_calls=1)
-        page = deps.reader.list_batch(cursor=state["next_page_cursor"], limit=min(25, remaining))
+        usage = charge_budget(state["usage"], state["limits"], pages=1)
+        page, usage = _bounded_call(
+            call=lambda: deps.reader.list_batch(
+                cursor=state["next_page_cursor"], limit=min(25, remaining)
+            ),
+            usage=usage,
+            limits=state["limits"],
+            dimension="tool_calls",
+            retries=state["limits"].retries_per_operation,
+            sleep=deps.sleep,
+        )
         if not page.candidates and page.next_cursor is not None:
             raise ValueError("candidate reader returned an empty nonterminal page")
         return {
@@ -207,8 +247,14 @@ def build_graph(deps: GraphDependencies) -> Any:
         candidate = state["current_candidate"]
         if candidate is None:
             raise ValueError("no candidate selected")
-        usage = charge_budget(state["usage"], state["limits"], tool_calls=1)
-        observations = deps.reader.get_observations(_current(state), limit=25)
+        observations, usage = _bounded_call(
+            call=lambda: deps.reader.get_observations(_current(state), limit=25),
+            usage=state["usage"],
+            limits=state["limits"],
+            dimension="tool_calls",
+            retries=state["limits"].retries_per_operation,
+            sleep=deps.sleep,
+        )
         evidence_bytes = len(
             json.dumps(
                 [item.model_dump(mode="json") for item in observations],
@@ -236,8 +282,14 @@ def build_graph(deps: GraphDependencies) -> Any:
         candidate = state["current_candidate"]
         if candidate is None:
             raise ValueError("no candidate selected")
-        usage = charge_budget(state["usage"], state["limits"], model_calls=1)
-        relationship = deps.planner.relationship(candidate, state["current_observations"])
+        relationship, usage = _bounded_call(
+            call=lambda: deps.planner.relationship(candidate, state["current_observations"]),
+            usage=state["usage"],
+            limits=state["limits"],
+            dimension="model_calls",
+            retries=state["limits"].retries_per_operation,
+            sleep=deps.sleep,
+        )
         result: DatasetDiscoveryState = {"usage": usage, "current_relationship": relationship}
         if relationship.relationship in {Relationship.EXACT_DUPLICATE, Relationship.ALREADY_KNOWN}:
             result["candidate_outcome_reason"] = relationship.relationship.value
@@ -248,8 +300,14 @@ def build_graph(deps: GraphDependencies) -> Any:
         relation = state["current_relationship"]
         if candidate is None or relation is None:
             raise ValueError("candidate relationship missing")
-        usage = charge_budget(state["usage"], state["limits"], model_calls=1)
-        analysis, dimensions = deps.planner.classify(candidate, state["current_observations"])
+        (analysis, dimensions), usage = _bounded_call(
+            call=lambda: deps.planner.classify(candidate, state["current_observations"]),
+            usage=state["usage"],
+            limits=state["limits"],
+            dimension="model_calls",
+            retries=state["limits"].retries_per_operation,
+            sleep=deps.sleep,
+        )
         version_id = _stable_id("recommendation-version-v1", state["run_id"], _current(state))
         ranking_input = PriorityInput(
             resource_key=_current(state),
@@ -275,20 +333,31 @@ def build_graph(deps: GraphDependencies) -> Any:
         analysis = state["current_analysis"]
         if analysis is None:
             raise ValueError("candidate analysis missing")
-        usage = charge_budget(state["usage"], state["limits"], model_calls=1)
+        rationale, usage = _bounded_call(
+            call=lambda: deps.planner.rationale(analysis),
+            usage=state["usage"],
+            limits=state["limits"],
+            dimension="model_calls",
+            retries=state["limits"].retries_per_operation,
+            sleep=deps.sleep,
+        )
         return {
             "usage": usage,
-            "current_analysis": analysis.model_copy(
-                update={"rationale_claims": deps.planner.rationale(analysis)}
-            ),
+            "current_analysis": analysis.model_copy(update={"rationale_claims": rationale}),
         }
 
     def propose_search_expansions(state: DatasetDiscoveryState) -> DatasetDiscoveryState:
         analysis = state["current_analysis"]
         if analysis is None:
             raise ValueError("candidate analysis missing")
-        usage = charge_budget(state["usage"], state["limits"], model_calls=1)
-        proposals = deps.planner.proposals(analysis)
+        proposals, usage = _bounded_call(
+            call=lambda: deps.planner.proposals(analysis),
+            usage=state["usage"],
+            limits=state["limits"],
+            dimension="model_calls",
+            retries=state["limits"].retries_per_operation,
+            sleep=deps.sleep,
+        )
         return {
             "usage": usage,
             "current_proposals": proposals,
