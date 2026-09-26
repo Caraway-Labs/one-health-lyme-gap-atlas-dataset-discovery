@@ -4,9 +4,12 @@ from typing import Protocol
 
 from lyme_gap_atlas_dataset_discovery.domain.models import (
     CandidateIdentity,
+    CandidateOutcomeReceipt,
     CandidatePage,
     CandidateSummary,
     EvidenceRef,
+    RecommendationWriteReceipt,
+    RunFinalizationReceipt,
     RunReceipt,
 )
 
@@ -29,6 +32,16 @@ class RecommendationRepository(Protocol):
     ) -> RunReceipt: ...
 
     def get_run(self, operation_key: str) -> RunReceipt | None: ...
+
+    def record_candidate_outcome(
+        self, receipt: CandidateOutcomeReceipt
+    ) -> CandidateOutcomeReceipt: ...
+
+    def save_recommendation(
+        self, receipt: RecommendationWriteReceipt
+    ) -> RecommendationWriteReceipt: ...
+
+    def finalize_run(self, receipt: RunFinalizationReceipt) -> RunFinalizationReceipt: ...
 
 
 class ModelInterpreter(Protocol):

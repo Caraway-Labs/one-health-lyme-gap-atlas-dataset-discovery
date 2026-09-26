@@ -4,7 +4,11 @@ from lyme_gap_atlas_dataset_discovery.adapters.fake import (
     FakeCandidateReader,
     FakeRecommendationRepository,
 )
-from lyme_gap_atlas_dataset_discovery.domain.models import CandidateIdentity, CandidateSummary
+from lyme_gap_atlas_dataset_discovery.domain.models import (
+    CandidateIdentity,
+    CandidateSummary,
+    RunFinalizationReceipt,
+)
 
 
 def test_fake_reader_pages_in_stable_order() -> None:
@@ -29,6 +33,15 @@ def test_fake_run_replay_and_explicit_retry_are_distinct() -> None:
     repository = FakeRecommendationRepository()
     first = repository.create_run(operation_key="delivery-a", run_id="run-a")
     assert repository.create_run(operation_key="delivery-a", run_id="ambiguous-redelivery") == first
+    repository.finalize_run(
+        RunFinalizationReceipt(
+            operation_key="finalize:run-a",
+            run_id="run-a",
+            status="FAILED",
+            processed_count=0,
+            recommendation_count=0,
+        )
+    )
     retry = repository.create_run(
         operation_key="delivery-b", run_id="run-b", retry_of_run_id="run-a"
     )

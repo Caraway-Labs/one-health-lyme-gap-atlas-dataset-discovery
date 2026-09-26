@@ -71,3 +71,28 @@ class RecommendationIdentity(StrictModel):
     run_id: str = Field(min_length=1)
     resource_key: str = Field(min_length=1)
     equivalent_to_version_id: str | None = None
+
+
+class CandidateOutcomeReceipt(StrictModel):
+    operation_key: str = Field(min_length=1)
+    run_id: str = Field(min_length=1)
+    resource_key: str = Field(min_length=1)
+    outcome: str = Field(min_length=1)
+    reason_code: str | None = None
+
+
+class RecommendationWriteReceipt(StrictModel):
+    operation_key: str = Field(min_length=1)
+    identity: RecommendationIdentity
+    assertion_sha256: str = Field(min_length=64, max_length=64)
+    evidence_observation_ids: tuple[str, ...] = Field(min_length=1)
+    proposal_ids: tuple[str, ...] = ()
+
+
+class RunFinalizationReceipt(StrictModel):
+    operation_key: str = Field(min_length=1)
+    run_id: str = Field(min_length=1)
+    status: str = Field(min_length=1)
+    processed_count: int = Field(ge=0)
+    recommendation_count: int = Field(ge=0)
+    stop_reason: str | None = None
