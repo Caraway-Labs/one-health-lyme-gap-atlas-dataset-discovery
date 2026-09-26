@@ -37,8 +37,15 @@ _STATUS = """SELECT already_governed FROM DATASET_DISCOVERY.V_CANDIDATE_GOVERNED
 WHERE resource_key = %s LIMIT 2"""
 _FIELDS = frozenset(
     {
-        "title", "publisher", "description", "issued", "modified", "spatial",
-        "temporal", "license", "access_level",
+        "title",
+        "publisher",
+        "description",
+        "issued",
+        "modified",
+        "spatial",
+        "temporal",
+        "license",
+        "access_level",
     }
 )
 

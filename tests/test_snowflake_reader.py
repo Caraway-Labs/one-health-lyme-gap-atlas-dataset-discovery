@@ -92,7 +92,7 @@ def test_invalid_cursor_fails_before_query() -> None:
 
 
 def test_oversize_result_fails_closed() -> None:
-    db = Connection([( "key", "dataset-1", "resource-1", "x" * 9000, "publisher")])
+    db = Connection([("key", "dataset-1", "resource-1", "x" * 9000, "publisher")])
     reader = SnowflakeCandidateReader(discovery_run_id="snapshot-1", connect=lambda: db)
     with pytest.raises(ValueError, match="byte limit"):
         reader.get_summary("key")
