@@ -43,7 +43,9 @@ class CandidateAnalysis(StrictModel):
     inferences: tuple[Inference, ...] = ()
     unknowns: tuple[Unknown, ...] = ()
     rationale_claims: tuple[RationaleClaim, ...] = ()
-    search_expansion_proposals: tuple[SearchExpansionProposal, ...] = ()
+    search_expansion_proposals: tuple[SearchExpansionProposal, ...] = Field(
+        default=(), max_length=10
+    )
 
 
 def validate_analysis(

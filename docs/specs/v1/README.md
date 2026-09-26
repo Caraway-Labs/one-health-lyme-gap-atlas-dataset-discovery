@@ -34,6 +34,8 @@ The create-run port sends typed, immutable run metadata matching the data-owned 
 
 `recommendation_id` is stable for the canonical candidate/resource. Every new run that generates a recommendation creates a new immutable `recommendation_version_id`, even for equivalent content; `equivalent_to_version_id` may link that equivalence. A same-run replay returns the prior version receipt. Human review cites the exact version. An explicit retry of a terminal run creates a new run ID with `retry_of_run_id`; an ambiguous replay of the same execution returns its original run ID.
 
+The atomic recommendation request includes its pinned discovery snapshot and an `assertion_sha256` over canonical validated analysis, ranking input/result, and relationship. The hash is version-specific because the ranking input contains the immutable version ID; equality across separate runs is not inferred from it. The runtime derives `RIGHTS_UNKNOWN` when no rights/access metadata is observed and `RIGHTS_REVIEW_REQUIRED` when such metadata exists. Neither state is rights clearance or a hard prohibition; reviewed restricted/prohibited findings belong to governed investigation and review evidence.
+
 ## Classification and ranking
 
 Categories: `RELEVANT`, `POSSIBLY_RELEVANT`, `IRRELEVANT`, `INSUFFICIENT_EVIDENCE`, `BLOCKED`. Relationships: exact duplicate, mirror/alternate distribution, revision, supersession, complementary, already known, distinct, unknown. Exact canonical IDs/URLs and retained version evidence outrank semantic guesses. Ambiguity remains unknown.

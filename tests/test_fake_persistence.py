@@ -12,19 +12,64 @@ from lyme_gap_atlas_dataset_discovery.domain.models import (
     RecommendationIdentity,
     RunFinalizationReceipt,
 )
-from lyme_gap_atlas_dataset_discovery.domain.persistence import RecommendationWrite
+from lyme_gap_atlas_dataset_discovery.domain.persistence import (
+    RecommendationWrite,
+    assertion_sha256,
+    rights_evidence_state,
+)
 from lyme_gap_atlas_dataset_discovery.domain.ranking import (
     Dimension,
-    PriorityBucket,
     PriorityInput,
-    PriorityResult,
     RankingDimensions,
     Relationship,
+    rank_candidate,
 )
 from lyme_gap_atlas_dataset_discovery.domain.relationships import RelationshipResult
 
 
 def recommendation(run_id: str, version_id: str) -> RecommendationWrite:
+    analysis = CandidateAnalysis(
+        identity=CandidateIdentity(
+            resource_key="resource",
+            catalog_dataset_id="dataset",
+            catalog_resource_id="catalog-resource",
+        ),
+        classification=Classification.RELEVANT,
+        observed_facts=(
+            ObservedFact(
+                field="publisher",
+                value="Agency",
+                evidence=EvidenceRef(
+                    observation_id="obs-1",
+                    catalog_dataset_id="dataset",
+                    catalog_resource_id="catalog-resource",
+                    observed_at="2026-09-26T00:00:00Z",
+                ),
+            ),
+        ),
+    )
+    ranking_input = PriorityInput(
+        resource_key="resource",
+        recommendation_version_id=version_id,
+        observed_evidence_ids=frozenset({"obs-1"}),
+        relationship=Relationship.DISTINCT,
+        dimensions=RankingDimensions(
+            relevance=Dimension(value=2, supporting_observation_ids=("obs-1",)),
+            geography=Dimension(value=2, supporting_observation_ids=("obs-1",)),
+            variables=Dimension(value=2, supporting_observation_ids=("obs-1",)),
+            time=Dimension(value=2, supporting_observation_ids=("obs-1",)),
+            provenance=Dimension(value=2, supporting_observation_ids=("obs-1",)),
+            freshness=Dimension(value=2, supporting_observation_ids=("obs-1",)),
+            rights_clarity=Dimension(value=None),
+            complementarity=Dimension(value=2, supporting_observation_ids=("obs-1",)),
+        ),
+    )
+    priority = rank_candidate(ranking_input)
+    relationship = RelationshipResult(
+        relationship=Relationship.DISTINCT,
+        basis="FAKE_FIXTURE",
+        supporting_observation_ids=("obs-1",),
+    )
     return RecommendationWrite(
         operation_key=f"recommendation:{run_id}:resource",
         identity=RecommendationIdentity(
@@ -33,56 +78,13 @@ def recommendation(run_id: str, version_id: str) -> RecommendationWrite:
             run_id=run_id,
             resource_key="resource",
         ),
-        assertion_sha256="a" * 64,
-        analysis=CandidateAnalysis(
-            identity=CandidateIdentity(
-                resource_key="resource",
-                catalog_dataset_id="dataset",
-                catalog_resource_id="catalog-resource",
-            ),
-            classification=Classification.RELEVANT,
-            observed_facts=(
-                ObservedFact(
-                    field="publisher",
-                    value="Agency",
-                    evidence=EvidenceRef(
-                        observation_id="obs-1",
-                        catalog_dataset_id="dataset",
-                        catalog_resource_id="catalog-resource",
-                        observed_at="2026-09-26T00:00:00Z",
-                    ),
-                ),
-            ),
-        ),
-        ranking_input=PriorityInput(
-            resource_key="resource",
-            recommendation_version_id=version_id,
-            observed_evidence_ids=frozenset({"obs-1"}),
-            relationship=Relationship.DISTINCT,
-            dimensions=RankingDimensions(
-                relevance=Dimension(value=2, supporting_observation_ids=("obs-1",)),
-                geography=Dimension(value=2, supporting_observation_ids=("obs-1",)),
-                variables=Dimension(value=2, supporting_observation_ids=("obs-1",)),
-                time=Dimension(value=2, supporting_observation_ids=("obs-1",)),
-                provenance=Dimension(value=2, supporting_observation_ids=("obs-1",)),
-                freshness=Dimension(value=2, supporting_observation_ids=("obs-1",)),
-                rights_clarity=Dimension(value=None),
-                complementarity=Dimension(value=2, supporting_observation_ids=("obs-1",)),
-            ),
-        ),
-        priority=PriorityResult(
-            score=38,
-            bucket=PriorityBucket.HIGH,
-            relationship_adjustment=0,
-            missing_count=1,
-            abstain_reason=None,
-            sort_key=(0, 0, -38, 1, "resource", version_id),
-        ),
-        relationship=RelationshipResult(
-            relationship=Relationship.DISTINCT,
-            basis="FAKE_FIXTURE",
-            supporting_observation_ids=("obs-1",),
-        ),
+        evidence_snapshot_id="fixture-snapshot",
+        rights_state=rights_evidence_state(analysis),
+        assertion_sha256=assertion_sha256(analysis, ranking_input, priority, relationship),
+        analysis=analysis,
+        ranking_input=ranking_input,
+        priority=priority,
+        relationship=relationship,
     )
 
 
@@ -108,7 +110,7 @@ def test_same_run_replay_and_new_run_version() -> None:
     assert repository.save_recommendation(second).identity == second.identity
     assert second.identity.recommendation_id == first.identity.recommendation_id
     assert second.identity.recommendation_version_id != first.identity.recommendation_version_id
-    assert second.assertion_sha256 == first.assertion_sha256
+    assert second.assertion_sha256 != first.assertion_sha256
 
 
 def test_conflicting_replay_fails_closed() -> None:
@@ -116,8 +118,17 @@ def test_conflicting_replay_fails_closed() -> None:
     repository.create_run(operation_key="execution-a", run_id="run-a")
     first = recommendation("run-a", "version-a")
     repository.save_recommendation(first)
+    changed_relationship = first.relationship.model_copy(update={"basis": "CHANGED_BASIS"})
+    changed = first.model_copy(
+        update={
+            "relationship": changed_relationship,
+            "assertion_sha256": assertion_sha256(
+                first.analysis, first.ranking_input, first.priority, changed_relationship
+            ),
+        }
+    )
     with pytest.raises(ValueError, match="conflicting payload"):
-        repository.save_recommendation(first.model_copy(update={"assertion_sha256": "b" * 64}))
+        repository.save_recommendation(changed)
     with pytest.raises(ValueError, match="same-run candidate"):
         repository.save_recommendation(
             recommendation("run-a", "version-other").model_copy(update={"operation_key": "other"})

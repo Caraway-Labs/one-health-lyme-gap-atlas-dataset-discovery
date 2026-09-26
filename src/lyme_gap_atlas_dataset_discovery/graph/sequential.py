@@ -10,7 +10,7 @@ from typing import Any, cast
 
 from langgraph.graph import END, START, StateGraph
 
-from lyme_gap_atlas_dataset_discovery.domain.analysis import validate_analysis
+from lyme_gap_atlas_dataset_discovery.domain.analysis import CandidateAnalysis, validate_analysis
 from lyme_gap_atlas_dataset_discovery.domain.models import (
     CandidateOutcomeReceipt,
     RecommendationIdentity,
@@ -18,7 +18,11 @@ from lyme_gap_atlas_dataset_discovery.domain.models import (
     RunFinalizationReceipt,
     RunReceipt,
 )
-from lyme_gap_atlas_dataset_discovery.domain.persistence import RecommendationWrite
+from lyme_gap_atlas_dataset_discovery.domain.persistence import (
+    RecommendationWrite,
+    assertion_sha256,
+    rights_evidence_state,
+)
 from lyme_gap_atlas_dataset_discovery.domain.ranking import (
     PriorityInput,
     Relationship,
@@ -493,6 +497,7 @@ def build_graph(deps: GraphDependencies) -> Any:
         if analysis is None or state["current_priority"] is None:
             return {"candidate_outcome_reason": "MISSING_ANALYSIS"}
         try:
+            CandidateAnalysis.model_validate(analysis.model_dump())
             validate_analysis(analysis, available_evidence=state["current_observations"])
         except ValueError:
             return {"candidate_outcome_reason": "INVALID_EVIDENCE_OR_CLAIM"}
@@ -507,16 +512,6 @@ def build_graph(deps: GraphDependencies) -> Any:
             raise ValueError("validated recommendation bundle missing")
         assert analysis is not None and ranking_input is not None
         assert priority is not None and relationship is not None
-        content = json.dumps(
-            {
-                "analysis": analysis.model_dump(mode="json"),
-                "ranking_input": ranking_input.model_dump(mode="json"),
-                "priority": priority.model_dump(mode="json"),
-                "relationship": relationship.model_dump(mode="json"),
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        )
         identity = RecommendationIdentity(
             recommendation_id=_stable_id("recommendation-v1", _current(state)),
             recommendation_version_id=ranking_input.recommendation_version_id,
@@ -527,7 +522,9 @@ def build_graph(deps: GraphDependencies) -> Any:
         request = RecommendationWrite(
             operation_key=operation_key,
             identity=identity,
-            assertion_sha256=hashlib.sha256(content.encode("utf-8")).hexdigest(),
+            evidence_snapshot_id=state["evidence_snapshot_id"],
+            rights_state=rights_evidence_state(analysis),
+            assertion_sha256=assertion_sha256(analysis, ranking_input, priority, relationship),
             analysis=analysis,
             ranking_input=ranking_input,
             priority=priority,

@@ -1,5 +1,9 @@
 """Atomic recommendation write contract, distinct from the durable receipt."""
 
+import hashlib
+import json
+from enum import StrEnum
+
 from pydantic import Field, model_validator
 
 from .analysis import CandidateAnalysis
@@ -8,9 +12,43 @@ from .ranking import PriorityInput, PriorityResult, rank_candidate
 from .relationships import RelationshipResult
 
 
+class RightsEvidenceState(StrEnum):
+    RIGHTS_UNKNOWN = "RIGHTS_UNKNOWN"
+    RIGHTS_REVIEW_REQUIRED = "RIGHTS_REVIEW_REQUIRED"
+
+
+def rights_evidence_state(analysis: CandidateAnalysis) -> RightsEvidenceState:
+    """A metadata mention triggers investigation, never rights clearance."""
+    return (
+        RightsEvidenceState.RIGHTS_REVIEW_REQUIRED
+        if any(fact.field in {"license", "access_level"} for fact in analysis.observed_facts)
+        else RightsEvidenceState.RIGHTS_UNKNOWN
+    )
+
+
+def assertion_sha256(
+    analysis: CandidateAnalysis,
+    ranking_input: PriorityInput,
+    priority: PriorityResult,
+    relationship: RelationshipResult,
+) -> str:
+    ranking = ranking_input.model_dump(mode="json")
+    ranking["observed_evidence_ids"] = sorted(ranking_input.observed_evidence_ids)
+    payload = {
+        "analysis": analysis.model_dump(mode="json"),
+        "ranking_input": ranking,
+        "priority": priority.model_dump(mode="json"),
+        "relationship": relationship.model_dump(mode="json"),
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 class RecommendationWrite(StrictModel):
     operation_key: str = Field(min_length=1)
     identity: RecommendationIdentity
+    evidence_snapshot_id: str = Field(min_length=1)
+    rights_state: RightsEvidenceState
     assertion_sha256: str = Field(min_length=64, max_length=64)
     analysis: CandidateAnalysis
     ranking_input: PriorityInput
@@ -37,6 +75,12 @@ class RecommendationWrite(StrictModel):
             raise ValueError("priority differs from the versioned deterministic formula")
         if self.priority.score is None:
             raise ValueError("abstaining candidate cannot be persisted as a recommendation")
+        if self.rights_state != rights_evidence_state(self.analysis):
+            raise ValueError("rights evidence state is not derived from observed metadata")
+        if self.assertion_sha256 != assertion_sha256(
+            self.analysis, self.ranking_input, self.priority, self.relationship
+        ):
+            raise ValueError("assertion hash differs from canonical validated content")
         return self
 
     @property
