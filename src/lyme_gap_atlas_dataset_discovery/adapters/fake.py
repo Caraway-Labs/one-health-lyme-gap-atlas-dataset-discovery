@@ -7,6 +7,7 @@ from lyme_gap_atlas_dataset_discovery.domain.models import (
     CandidateIdentity,
     CandidatePage,
     CandidateSummary,
+    DiscoveryContext,
     EvidenceRef,
     RunReceipt,
 )
@@ -16,6 +17,7 @@ from lyme_gap_atlas_dataset_discovery.domain.models import (
 class FakeCandidateReader:
     candidates: tuple[CandidateSummary, ...] = ()
     observations: dict[str, tuple[AvailableObservation, ...]] = field(default_factory=dict)
+    discovery_run_id: str = "fixture-snapshot"
 
     def list_batch(self, *, cursor: str | None, limit: int) -> CandidatePage:
         if not 1 <= limit <= 25:
@@ -62,6 +64,14 @@ class FakeCandidateReader:
             if candidate.identity.resource_key == candidate_id:
                 return candidate
         raise KeyError(candidate_id)
+
+
+@dataclass
+class FakeDiscoveryContextReader:
+    contexts: dict[str, DiscoveryContext] = field(default_factory=dict)
+
+    def get_context(self, discovery_run_id: str) -> DiscoveryContext:
+        return self.contexts[discovery_run_id]
 
 
 @dataclass
