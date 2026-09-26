@@ -6,7 +6,7 @@ from enum import StrEnum
 
 from pydantic import Field, model_validator
 
-from .analysis import CandidateAnalysis
+from .analysis import CandidateAnalysis, render_rationale
 from .models import RecommendationIdentity, StrictModel
 from .ranking import PriorityInput, PriorityResult, rank_candidate
 from .relationships import RelationshipResult
@@ -54,6 +54,7 @@ class RecommendationWrite(StrictModel):
     ranking_input: PriorityInput
     priority: PriorityResult
     relationship: RelationshipResult
+    rationale: str = Field(min_length=1, max_length=10000)
 
     @model_validator(mode="after")
     def validate_bundle(self) -> "RecommendationWrite":
@@ -81,6 +82,8 @@ class RecommendationWrite(StrictModel):
             self.analysis, self.ranking_input, self.priority, self.relationship
         ):
             raise ValueError("assertion hash differs from canonical validated content")
+        if self.rationale != render_rationale(self.analysis.rationale_claims):
+            raise ValueError("rationale differs from validated structured claims")
         return self
 
     @property

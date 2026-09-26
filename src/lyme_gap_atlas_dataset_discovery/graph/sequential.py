@@ -10,7 +10,11 @@ from typing import Any, cast
 
 from langgraph.graph import END, START, StateGraph
 
-from lyme_gap_atlas_dataset_discovery.domain.analysis import CandidateAnalysis, validate_analysis
+from lyme_gap_atlas_dataset_discovery.domain.analysis import (
+    CandidateAnalysis,
+    render_rationale,
+    validate_analysis,
+)
 from lyme_gap_atlas_dataset_discovery.domain.models import (
     CandidateOutcomeReceipt,
     RecommendationIdentity,
@@ -529,6 +533,7 @@ def build_graph(deps: GraphDependencies) -> Any:
             ranking_input=ranking_input,
             priority=priority,
             relationship=relationship,
+            rationale=render_rationale(analysis.rationale_claims),
         )
         receipt = _deliver_with_receipt_reconciliation(
             send=lambda: deps.repository.save_recommendation(request),

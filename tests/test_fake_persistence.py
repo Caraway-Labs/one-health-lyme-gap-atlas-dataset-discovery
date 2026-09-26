@@ -3,7 +3,12 @@
 import pytest
 
 from lyme_gap_atlas_dataset_discovery.adapters.fake import FakeRecommendationRepository
-from lyme_gap_atlas_dataset_discovery.domain.analysis import CandidateAnalysis, Classification
+from lyme_gap_atlas_dataset_discovery.domain.analysis import (
+    CandidateAnalysis,
+    Classification,
+    RationaleClaim,
+    render_rationale,
+)
 from lyme_gap_atlas_dataset_discovery.domain.models import (
     CandidateIdentity,
     CandidateOutcomeReceipt,
@@ -47,6 +52,14 @@ def recommendation(run_id: str, version_id: str) -> RecommendationWrite:
                 ),
             ),
         ),
+        rationale_claims=(
+            RationaleClaim(
+                field="publisher",
+                text="Agency",
+                kind="OBSERVED",
+                supporting_observation_ids=("obs-1",),
+            ),
+        ),
     )
     ranking_input = PriorityInput(
         resource_key="resource",
@@ -85,6 +98,7 @@ def recommendation(run_id: str, version_id: str) -> RecommendationWrite:
         ranking_input=ranking_input,
         priority=priority,
         relationship=relationship,
+        rationale=render_rationale(analysis.rationale_claims),
     )
 
 
