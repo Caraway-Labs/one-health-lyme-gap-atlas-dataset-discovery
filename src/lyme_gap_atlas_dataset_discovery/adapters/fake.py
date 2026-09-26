@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 
+from lyme_gap_atlas_dataset_discovery.domain.analysis import AvailableObservation
 from lyme_gap_atlas_dataset_discovery.domain.models import (
     CandidateIdentity,
     CandidatePage,
@@ -14,6 +15,7 @@ from lyme_gap_atlas_dataset_discovery.domain.models import (
 @dataclass
 class FakeCandidateReader:
     candidates: tuple[CandidateSummary, ...] = ()
+    observations: dict[str, tuple[AvailableObservation, ...]] = field(default_factory=dict)
 
     def list_batch(self, *, cursor: str | None, limit: int) -> CandidatePage:
         if not 1 <= limit <= 25:
@@ -38,6 +40,18 @@ class FakeCandidateReader:
         if not 1 <= limit <= 25:
             raise ValueError("evidence limit outside v1 hard maximum")
         return self._find(candidate_id).evidence_refs[:limit]
+
+    def get_observations(
+        self, candidate_id: str, *, limit: int
+    ) -> tuple[AvailableObservation, ...]:
+        if not 1 <= limit <= 25:
+            raise ValueError("observation limit outside v1 hard maximum")
+        self._find(candidate_id)
+        result = self.observations.get(candidate_id, ())[:limit]
+        declared = {ref.observation_id for ref in self._find(candidate_id).evidence_refs}
+        if any(item.reference.observation_id not in declared for item in result):
+            raise ValueError("observation not declared by candidate evidence refs")
+        return result
 
     def get_governed_status(self, candidate_id: str) -> str:
         self._find(candidate_id)
