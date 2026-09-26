@@ -4,7 +4,7 @@ import hashlib
 import json
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class StrictModel(BaseModel):
@@ -135,4 +135,25 @@ class RunFinalizationReceipt(StrictModel):
     status: str = Field(min_length=1)
     processed_count: int = Field(ge=0)
     recommendation_count: int = Field(ge=0)
+    budget_usage: dict[str, int] = Field(default_factory=dict)
     stop_reason: str | None = None
+
+    @field_validator("budget_usage")
+    @classmethod
+    def bounded_usage(cls, value: dict[str, int]) -> dict[str, int]:
+        allowed = {
+            "candidates",
+            "pages",
+            "graph_steps",
+            "model_calls",
+            "tool_calls",
+            "elapsed_seconds",
+            "input_tokens",
+            "output_tokens",
+            "evidence_bytes",
+            "retained_state_bytes",
+            "estimated_spend_cents",
+        }
+        if set(value) - allowed or any(amount < 0 for amount in value.values()):
+            raise ValueError("run usage counters must be bounded and nonnegative")
+        return value

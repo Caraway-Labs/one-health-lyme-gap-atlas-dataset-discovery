@@ -158,6 +158,7 @@ def test_valid_candidate_persists_and_finalizes() -> None:
     assert result["remaining_run_budget"]["candidates"] == 4
     assert len(repository.recommendations) == 1
     assert repository.finalizations["run-1"].recommendation_count == 1
+    assert repository.finalizations["run-1"].budget_usage["candidates"] == 1
     metadata = repository.run_metadata["execution:run-1"]
     assert metadata.mode == "FIXTURE"
     assert metadata.evidence_snapshot_id == "fixture-snapshot"

@@ -597,6 +597,7 @@ def build_graph(deps: GraphDependencies) -> Any:
             status=state["final_status"] or "FAILED",
             processed_count=state["processed_count"],
             recommendation_count=len(state["persisted_recommendation_version_ids"]),
+            budget_usage=state["usage"].model_dump(),
             stop_reason=state.get("stop_reason"),
         )
         receipt = _deliver_with_receipt_reconciliation(
