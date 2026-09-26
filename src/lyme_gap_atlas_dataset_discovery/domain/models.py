@@ -59,6 +59,13 @@ class CandidatePage(StrictModel):
     next_cursor: str | None = None
 
 
+class DiscoveryContext(StrictModel):
+    discovery_run_id: str = Field(min_length=1)
+    search_fingerprint: str = Field(min_length=64, max_length=64)
+    completed_at: str = Field(min_length=1)
+    status: str = Field(pattern="^COMPLETED$")
+
+
 class RunReceipt(StrictModel):
     run_id: str = Field(min_length=1)
     operation_key: str = Field(min_length=1)

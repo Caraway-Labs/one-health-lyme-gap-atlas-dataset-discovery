@@ -5,7 +5,10 @@ from typing import Any
 
 import pytest
 
-from lyme_gap_atlas_dataset_discovery.adapters.snowflake_reader import SnowflakeCandidateReader
+from lyme_gap_atlas_dataset_discovery.adapters.snowflake_reader import (
+    SnowflakeCandidateReader,
+    SnowflakeDiscoveryContextReader,
+)
 
 
 class Cursor:
@@ -96,3 +99,17 @@ def test_oversize_result_fails_closed() -> None:
     reader = SnowflakeCandidateReader(discovery_run_id="snapshot-1", connect=lambda: db)
     with pytest.raises(ValueError, match="byte limit"):
         reader.get_summary("key")
+
+
+def test_discovery_context_is_fixed_snapshot_query_and_requires_completion() -> None:
+    stamp = datetime(2026, 9, 26, tzinfo=UTC)
+    db = Connection([("run-1", "a" * 64, stamp, "COMPLETED")])
+    reader = SnowflakeDiscoveryContextReader(connect=lambda: db)
+    context = reader.get_context("run-1")
+    assert context.search_fingerprint == "a" * 64
+    assert db.calls[0][1] == ("run-1",)
+    assert "V_DISCOVERY_CONTEXT" in db.calls[0][0]
+
+    incomplete = Connection([("run-1", "a" * 64, stamp, "RUNNING")])
+    with pytest.raises(ValueError):
+        SnowflakeDiscoveryContextReader(connect=lambda: incomplete).get_context("run-1")

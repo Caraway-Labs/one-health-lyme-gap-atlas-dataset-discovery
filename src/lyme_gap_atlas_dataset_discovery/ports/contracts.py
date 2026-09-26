@@ -7,9 +7,14 @@ from lyme_gap_atlas_dataset_discovery.domain.models import (
     CandidateIdentity,
     CandidatePage,
     CandidateSummary,
+    DiscoveryContext,
     EvidenceRef,
     RunReceipt,
 )
+
+
+class DiscoveryContextReader(Protocol):
+    def get_context(self, discovery_run_id: str) -> DiscoveryContext: ...
 
 
 class CandidateReader(Protocol):
