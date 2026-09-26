@@ -71,11 +71,12 @@ def recommendation(run_id: str, version_id: str) -> RecommendationWrite:
             ),
         ),
         priority=PriorityResult(
-            score=36,
+            score=38,
             bucket=PriorityBucket.HIGH,
             relationship_adjustment=0,
+            missing_count=1,
             abstain_reason=None,
-            sort_key=(0, -36, -2, -2, -2, -2, "resource", version_id),
+            sort_key=(0, 0, -38, 1, "resource", version_id),
         ),
         relationship=RelationshipResult(
             relationship=Relationship.DISTINCT,
