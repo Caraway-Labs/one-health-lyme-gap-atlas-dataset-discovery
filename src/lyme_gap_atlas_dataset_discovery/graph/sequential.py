@@ -54,6 +54,15 @@ class PolicyViolation(RuntimeError):
     """Unrecoverable authority or security boundary failure."""
 
 
+class RetryExhausted(RuntimeError):
+    """Carry charged attempts when a transient call has no successful result."""
+
+    def __init__(self, cause: ConnectionError | TimeoutError, usage: BudgetUsage) -> None:
+        super().__init__(type(cause).__name__)
+        self.cause = cause
+        self.usage = usage
+
+
 def _deliver_with_receipt_reconciliation[ReceiptT](
     *,
     send: Callable[[], ReceiptT],
@@ -107,9 +116,9 @@ def _bounded_call[ResultT](
         current = charge_budget(current, limits, **{dimension: 1})
         try:
             return call(), current
-        except (ConnectionError, TimeoutError):
+        except (ConnectionError, TimeoutError) as error:
             if attempt == retries:
-                raise
+                raise RetryExhausted(error, current) from error
             sleep(min(0.25 * 2**attempt, 2.0))
     raise AssertionError("bounded retry loop unexpectedly exhausted")
 
@@ -522,21 +531,27 @@ def build_graph(deps: GraphDependencies) -> Any:
             except BudgetExceeded as error:
                 return {"stop_reason": str(error), "final_status": "BUDGET_STOPPED"}
             except Exception as error:
-                code = f"{name}:{type(error).__name__}"
+                cause = error.cause if isinstance(error, RetryExhausted) else error
+                code = f"{name}:{type(cause).__name__}"
                 bounded_errors = (*state.get("bounded_errors", ()), code)[-10:]
-                systemic = isinstance(error, PolicyViolation) or (
+                systemic = isinstance(cause, PolicyViolation) or (
                     name == "assess_evidence_sufficiency"
-                    and isinstance(error, (ConnectionError, TimeoutError))
+                    and isinstance(cause, (ConnectionError, TimeoutError))
                 )
+                charged_usage = error.usage if isinstance(error, RetryExhausted) else state["usage"]
                 if name in candidate_analysis_nodes and not systemic:
                     return {
                         "candidate_outcome_reason": "CANDIDATE_ANALYSIS_ERROR",
                         "bounded_errors": bounded_errors,
+                        "usage": charged_usage,
+                        "remaining_run_budget": remaining_budget(charged_usage, state["limits"]),
                     }
                 return {
                     "stop_reason": code,
                     "final_status": "PARTIAL" if state.get("processed_count", 0) else "FAILED",
                     "bounded_errors": bounded_errors,
+                    "usage": charged_usage,
+                    "remaining_run_budget": remaining_budget(charged_usage, state["limits"]),
                 }
 
         return guarded

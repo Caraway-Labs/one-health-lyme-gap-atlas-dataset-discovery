@@ -340,6 +340,7 @@ def test_evidence_reader_outage_is_systemic() -> None:
     result = graph.invoke(input_state(), config={"recursion_limit": 100})
     assert result["final_status"] == "FAILED"
     assert result["stop_reason"] == "assess_evidence_sufficiency:ConnectionError"
+    assert result["usage"].tool_calls == 2
     assert repository.finalizations["run-1"].status == "FAILED"
 
 
@@ -404,3 +405,30 @@ def test_transient_reader_and_model_errors_retry_with_attempts_charged() -> None
     assert planner.attempts == 2
     assert result["usage"].tool_calls == 3  # page plus two evidence attempts
     assert result["usage"].model_calls == 5  # relationship twice; remaining nodes once
+
+
+def test_exhausted_model_retries_record_candidate_and_charge_attempts() -> None:
+    candidate, observations, plan = fixture("candidate")
+
+    class DownPlanner(FakeCandidatePlanner):
+        def relationship(self, candidate, observations):  # type: ignore[no-untyped-def]
+            raise TimeoutError("temporary provider outage")
+
+    repository = FakeRecommendationRepository()
+    graph = build_graph(
+        GraphDependencies(
+            reader=FakeCandidateReader(
+                candidates=(candidate,), observations={"candidate": observations}
+            ),
+            repository=repository,
+            planner=DownPlanner({"candidate": plan}),
+            sleep=lambda _: None,
+        )
+    )
+    state = input_state()
+    state["profile"] = RunProfile.DEV_MANUAL
+    state["limits"] = PROFILE_DEFAULTS[RunProfile.DEV_MANUAL]
+    result = graph.invoke(state, config={"recursion_limit": 100})
+    assert result["processed_candidate_outcomes"] == ("CANDIDATE_ANALYSIS_ERROR",)
+    assert result["usage"].model_calls == 3
+    assert repository.finalizations["run-1"].processed_count == 1
