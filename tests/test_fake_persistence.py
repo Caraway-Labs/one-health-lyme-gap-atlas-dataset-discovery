@@ -3,16 +3,29 @@
 import pytest
 
 from lyme_gap_atlas_dataset_discovery.adapters.fake import FakeRecommendationRepository
+from lyme_gap_atlas_dataset_discovery.domain.analysis import CandidateAnalysis, Classification
 from lyme_gap_atlas_dataset_discovery.domain.models import (
+    CandidateIdentity,
     CandidateOutcomeReceipt,
+    EvidenceRef,
+    ObservedFact,
     RecommendationIdentity,
-    RecommendationWriteReceipt,
     RunFinalizationReceipt,
 )
+from lyme_gap_atlas_dataset_discovery.domain.persistence import RecommendationWrite
+from lyme_gap_atlas_dataset_discovery.domain.ranking import (
+    Dimension,
+    PriorityBucket,
+    PriorityInput,
+    PriorityResult,
+    RankingDimensions,
+    Relationship,
+)
+from lyme_gap_atlas_dataset_discovery.domain.relationships import RelationshipResult
 
 
-def recommendation(run_id: str, version_id: str) -> RecommendationWriteReceipt:
-    return RecommendationWriteReceipt(
+def recommendation(run_id: str, version_id: str) -> RecommendationWrite:
+    return RecommendationWrite(
         operation_key=f"recommendation:{run_id}:resource",
         identity=RecommendationIdentity(
             recommendation_id="stable-resource",
@@ -21,7 +34,54 @@ def recommendation(run_id: str, version_id: str) -> RecommendationWriteReceipt:
             resource_key="resource",
         ),
         assertion_sha256="a" * 64,
-        evidence_observation_ids=("obs-1",),
+        analysis=CandidateAnalysis(
+            identity=CandidateIdentity(
+                resource_key="resource",
+                catalog_dataset_id="dataset",
+                catalog_resource_id="catalog-resource",
+            ),
+            classification=Classification.RELEVANT,
+            observed_facts=(
+                ObservedFact(
+                    field="publisher",
+                    value="Agency",
+                    evidence=EvidenceRef(
+                        observation_id="obs-1",
+                        catalog_dataset_id="dataset",
+                        catalog_resource_id="catalog-resource",
+                        observed_at="2026-09-26T00:00:00Z",
+                    ),
+                ),
+            ),
+        ),
+        ranking_input=PriorityInput(
+            resource_key="resource",
+            recommendation_version_id=version_id,
+            observed_evidence_ids=frozenset({"obs-1"}),
+            relationship=Relationship.DISTINCT,
+            dimensions=RankingDimensions(
+                relevance=Dimension(value=2, supporting_observation_ids=("obs-1",)),
+                geography=Dimension(value=2, supporting_observation_ids=("obs-1",)),
+                variables=Dimension(value=2, supporting_observation_ids=("obs-1",)),
+                time=Dimension(value=2, supporting_observation_ids=("obs-1",)),
+                provenance=Dimension(value=2, supporting_observation_ids=("obs-1",)),
+                freshness=Dimension(value=2, supporting_observation_ids=("obs-1",)),
+                rights_clarity=Dimension(value=None),
+                complementarity=Dimension(value=2, supporting_observation_ids=("obs-1",)),
+            ),
+        ),
+        priority=PriorityResult(
+            score=36,
+            bucket=PriorityBucket.HIGH,
+            relationship_adjustment=0,
+            abstain_reason=None,
+            sort_key=(0, -36, -2, -2, -2, -2, "resource", version_id),
+        ),
+        relationship=RelationshipResult(
+            relationship=Relationship.DISTINCT,
+            basis="FAKE_FIXTURE",
+            supporting_observation_ids=("obs-1",),
+        ),
     )
 
 
@@ -29,8 +89,9 @@ def test_same_run_replay_and_new_run_version() -> None:
     repository = FakeRecommendationRepository()
     repository.create_run(operation_key="execution-a", run_id="run-a")
     first = recommendation("run-a", "version-a")
-    assert repository.save_recommendation(first) == first
-    assert repository.save_recommendation(first) == first
+    first_receipt = repository.save_recommendation(first)
+    assert repository.save_recommendation(first) == first_receipt
+    assert first_receipt.evidence_observation_ids == ("obs-1",)
 
     repository.finalize_run(
         RunFinalizationReceipt(
@@ -43,7 +104,7 @@ def test_same_run_replay_and_new_run_version() -> None:
     )
     repository.create_run(operation_key="execution-b", run_id="run-b", retry_of_run_id="run-a")
     second = recommendation("run-b", "version-b")
-    assert repository.save_recommendation(second) == second
+    assert repository.save_recommendation(second).identity == second.identity
     assert second.identity.recommendation_id == first.identity.recommendation_id
     assert second.identity.recommendation_version_id != first.identity.recommendation_version_id
     assert second.assertion_sha256 == first.assertion_sha256
@@ -58,14 +119,7 @@ def test_conflicting_replay_fails_closed() -> None:
         repository.save_recommendation(first.model_copy(update={"assertion_sha256": "b" * 64}))
     with pytest.raises(ValueError, match="same-run candidate"):
         repository.save_recommendation(
-            first.model_copy(
-                update={
-                    "operation_key": "other",
-                    "identity": first.identity.model_copy(
-                        update={"recommendation_version_id": "version-other"}
-                    ),
-                }
-            )
+            recommendation("run-a", "version-other").model_copy(update={"operation_key": "other"})
         )
 
 

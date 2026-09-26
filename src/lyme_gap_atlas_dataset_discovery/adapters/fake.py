@@ -12,6 +12,7 @@ from lyme_gap_atlas_dataset_discovery.domain.models import (
     RunFinalizationReceipt,
     RunReceipt,
 )
+from lyme_gap_atlas_dataset_discovery.domain.persistence import RecommendationWrite
 
 
 @dataclass
@@ -58,6 +59,7 @@ class FakeRecommendationRepository:
     runs: dict[str, RunReceipt] = field(default_factory=dict)
     outcomes: dict[str, CandidateOutcomeReceipt] = field(default_factory=dict)
     recommendations: dict[str, RecommendationWriteReceipt] = field(default_factory=dict)
+    recommendation_bundles: dict[str, RecommendationWrite] = field(default_factory=dict)
     finalizations: dict[str, RunFinalizationReceipt] = field(default_factory=dict)
 
     def create_run(
@@ -104,25 +106,36 @@ class FakeRecommendationRepository:
         self.outcomes[receipt.operation_key] = receipt
         return receipt
 
-    def save_recommendation(
-        self, receipt: RecommendationWriteReceipt
-    ) -> RecommendationWriteReceipt:
-        self._require_run(receipt.identity.run_id)
-        previous = self.recommendations.get(receipt.operation_key)
+    def save_recommendation(self, request: RecommendationWrite) -> RecommendationWriteReceipt:
+        request = RecommendationWrite.model_validate(request.model_dump())
+        self._require_run(request.identity.run_id)
+        if request.analysis.identity.resource_key != request.identity.resource_key:
+            raise ValueError("recommendation bundle candidate identity mismatch")
+        if request.priority.score is None:
+            raise ValueError("abstaining candidate cannot be persisted as a recommendation")
+        previous = self.recommendations.get(request.operation_key)
         if previous is not None:
-            if previous != receipt:
+            if self.recommendation_bundles[request.operation_key] != request:
                 raise ValueError("recommendation key reused with conflicting payload")
             return previous
-        self._require_open_run(receipt.identity.run_id)
+        self._require_open_run(request.identity.run_id)
         if any(
-            item.identity.recommendation_version_id == receipt.identity.recommendation_version_id
+            item.identity.recommendation_version_id == request.identity.recommendation_version_id
             or (
-                item.identity.run_id == receipt.identity.run_id
-                and item.identity.resource_key == receipt.identity.resource_key
+                item.identity.run_id == request.identity.run_id
+                and item.identity.resource_key == request.identity.resource_key
             )
             for item in self.recommendations.values()
         ):
             raise ValueError("recommendation version or same-run candidate already exists")
+        receipt = RecommendationWriteReceipt(
+            operation_key=request.operation_key,
+            identity=request.identity,
+            assertion_sha256=request.assertion_sha256,
+            evidence_observation_ids=request.evidence_observation_ids,
+            proposal_ids=request.proposal_ids,
+        )
+        self.recommendation_bundles[request.operation_key] = request
         self.recommendations[receipt.operation_key] = receipt
         return receipt
 

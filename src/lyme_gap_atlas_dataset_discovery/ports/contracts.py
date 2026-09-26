@@ -12,6 +12,7 @@ from lyme_gap_atlas_dataset_discovery.domain.models import (
     RunFinalizationReceipt,
     RunReceipt,
 )
+from lyme_gap_atlas_dataset_discovery.domain.persistence import RecommendationWrite
 
 
 class CandidateReader(Protocol):
@@ -37,9 +38,7 @@ class RecommendationRepository(Protocol):
         self, receipt: CandidateOutcomeReceipt
     ) -> CandidateOutcomeReceipt: ...
 
-    def save_recommendation(
-        self, receipt: RecommendationWriteReceipt
-    ) -> RecommendationWriteReceipt: ...
+    def save_recommendation(self, request: RecommendationWrite) -> RecommendationWriteReceipt: ...
 
     def finalize_run(self, receipt: RunFinalizationReceipt) -> RunFinalizationReceipt: ...
 
