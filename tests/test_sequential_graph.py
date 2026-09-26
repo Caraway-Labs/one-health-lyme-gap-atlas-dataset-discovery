@@ -61,14 +61,22 @@ def fixture(
     )
     summary = CandidateSummary(identity=identity, evidence_refs=(ref,) if with_evidence else ())
     observations = (
-        (AvailableObservation(reference=ref, field_values={"publisher": "Agency"}),)
+        (
+            AvailableObservation(
+                reference=ref,
+                field_values={"publisher": "Agency", "title": "Lyme surveillance"},
+            ),
+        )
         if with_evidence
         else ()
     )
     analysis = CandidateAnalysis(
         identity=identity,
         classification=Classification.RELEVANT,
-        observed_facts=(ObservedFact(field="publisher", value="Agency", evidence=ref),),
+        observed_facts=(
+            ObservedFact(field="publisher", value="Agency", evidence=ref),
+            ObservedFact(field="title", value="Lyme surveillance", evidence=ref),
+        ),
     )
     unknown = Dimension(value=None)
     plan = FixturePlan(

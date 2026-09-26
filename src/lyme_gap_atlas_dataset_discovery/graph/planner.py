@@ -16,6 +16,17 @@ from lyme_gap_atlas_dataset_discovery.domain.models import CandidateSummary, Str
 from lyme_gap_atlas_dataset_discovery.domain.ranking import RankingDimensions, Relationship
 from lyme_gap_atlas_dataset_discovery.domain.relationships import RelationshipResult
 
+_DIMENSION_FIELDS: dict[str, frozenset[str]] = {
+    "relevance": frozenset({"title", "description"}),
+    "geography": frozenset({"spatial", "description", "title"}),
+    "variables": frozenset({"description", "title"}),
+    "time": frozenset({"temporal", "issued", "modified", "description"}),
+    "provenance": frozenset({"publisher", "description"}),
+    "freshness": frozenset({"issued", "modified"}),
+    "rights_clarity": frozenset({"license", "access_level"}),
+    "complementarity": frozenset({"description", "title"}),
+}
+
 
 class ModelAllowance(StrictModel):
     max_input_tokens: int = Field(ge=0)
@@ -167,10 +178,18 @@ class ValidatedCandidatePlanner:
         if analysis.identity != candidate.identity:
             raise ValueError("semantic analysis changed canonical candidate identity")
         validate_analysis(analysis, available_evidence=observations)
-        observed_ids = {fact.evidence.observation_id for fact in analysis.observed_facts}
-        for dimension in dimensions.model_dump().values():
-            if not set(dimension["supporting_observation_ids"]).issubset(observed_ids):
+        observed_fields_by_id: dict[str, set[str]] = {}
+        for fact in analysis.observed_facts:
+            observed_fields_by_id.setdefault(fact.evidence.observation_id, set()).add(fact.field)
+        for name, dimension in dimensions.model_dump().items():
+            citations = set(dimension["supporting_observation_ids"])
+            if not citations.issubset(observed_fields_by_id):
                 raise ValueError("semantic dimension cites no validated observed fact")
+            if dimension["value"] is not None and not any(
+                observed_fields_by_id[observation_id] & _DIMENSION_FIELDS[name]
+                for observation_id in citations
+            ):
+                raise ValueError("semantic dimension cites unrelated metadata fields")
         return proposed
 
     def rationale(

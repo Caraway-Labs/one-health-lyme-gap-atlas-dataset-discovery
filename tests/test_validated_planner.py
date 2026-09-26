@@ -39,11 +39,18 @@ def specimen() -> tuple[CandidateSummary, tuple[AvailableObservation, ...], Fixt
         observed_at="2026-09-26T00:00:00Z",
     )
     candidate = CandidateSummary(identity=identity, evidence_refs=(ref,))
-    observations = (AvailableObservation(reference=ref, field_values={"publisher": "Agency"}),)
+    observations = (
+        AvailableObservation(
+            reference=ref, field_values={"publisher": "Agency", "title": "Lyme surveillance"}
+        ),
+    )
     analysis = CandidateAnalysis(
         identity=identity,
         classification=Classification.RELEVANT,
-        observed_facts=(ObservedFact(field="publisher", value="Agency", evidence=ref),),
+        observed_facts=(
+            ObservedFact(field="publisher", value="Agency", evidence=ref),
+            ObservedFact(field="title", value="Lyme surveillance", evidence=ref),
+        ),
     )
     unknown = Dimension(value=None)
     dimensions = RankingDimensions(
@@ -128,3 +135,16 @@ def test_semantic_rationale_must_match_validated_observation() -> None:
     planner = ValidatedCandidatePlanner(fake)
     with pytest.raises(ValueError, match="differs from validated fact"):
         planner.rationale(plan.analysis, observations, allowance=ALLOWANCE)
+
+
+def test_dimension_citation_must_refer_to_relevant_observed_field() -> None:
+    candidate, observations, plan = specimen()
+    publisher_only = plan.analysis.model_copy(
+        update={"observed_facts": plan.analysis.observed_facts[:1]}
+    )
+    fake = FakeCandidatePlanner(
+        {"resource": FixturePlan(**{**plan.__dict__, "analysis": publisher_only})}
+    )
+    planner = ValidatedCandidatePlanner(fake)
+    with pytest.raises(ValueError, match="unrelated metadata fields"):
+        planner.classify(candidate, observations, allowance=ALLOWANCE)
