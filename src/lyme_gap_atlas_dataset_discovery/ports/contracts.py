@@ -2,6 +2,7 @@
 
 from typing import Protocol
 
+from lyme_gap_atlas_dataset_discovery.domain.analysis import AvailableObservation
 from lyme_gap_atlas_dataset_discovery.domain.models import (
     CandidateIdentity,
     CandidateOutcomeReceipt,
@@ -23,6 +24,10 @@ class CandidateReader(Protocol):
     def get_identity(self, candidate_id: str) -> CandidateIdentity: ...
 
     def get_evidence_refs(self, candidate_id: str, *, limit: int) -> tuple[EvidenceRef, ...]: ...
+
+    def get_observations(
+        self, candidate_id: str, *, limit: int
+    ) -> tuple[AvailableObservation, ...]: ...
 
     def get_governed_status(self, candidate_id: str) -> str: ...
 

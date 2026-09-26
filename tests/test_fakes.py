@@ -4,9 +4,11 @@ from lyme_gap_atlas_dataset_discovery.adapters.fake import (
     FakeCandidateReader,
     FakeRecommendationRepository,
 )
+from lyme_gap_atlas_dataset_discovery.domain.analysis import AvailableObservation
 from lyme_gap_atlas_dataset_discovery.domain.models import (
     CandidateIdentity,
     CandidateSummary,
+    EvidenceRef,
     RunFinalizationReceipt,
 )
 
@@ -50,3 +52,31 @@ def test_fake_run_replay_and_explicit_retry_are_distinct() -> None:
         repository.create_run(
             operation_key="delivery-a", run_id="run-c", retry_of_run_id="unexpected"
         )
+
+
+def test_fake_observations_are_bounded_and_declared() -> None:
+    ref = EvidenceRef(
+        observation_id="observation-1",
+        catalog_dataset_id="dataset",
+        catalog_resource_id="resource",
+        observed_at="2026-09-26T00:00:00Z",
+    )
+    candidate = CandidateSummary(
+        identity=CandidateIdentity(
+            resource_key="resource", catalog_dataset_id="dataset", catalog_resource_id="resource"
+        ),
+        evidence_refs=(ref,),
+    )
+    reader = FakeCandidateReader(
+        candidates=(candidate,),
+        observations={
+            "resource": (AvailableObservation(reference=ref, field_values={"publisher": "Agency"}),)
+        },
+    )
+    assert reader.get_observations("resource", limit=1)[0].field_values == {"publisher": "Agency"}
+    with pytest.raises(ValueError, match="outside v1 hard maximum"):
+        reader.get_observations("resource", limit=26)
+    unknown = ref.model_copy(update={"observation_id": "unknown"})
+    reader.observations["resource"] = (AvailableObservation(reference=unknown, field_values={}),)
+    with pytest.raises(ValueError, match="not declared"):
+        reader.get_observations("resource", limit=1)
