@@ -61,3 +61,10 @@ Profiles: `FIXTURE`, `DEV_MANUAL`, `HOSTED_MANUAL`, `SHADOW`, `SCHEDULED`. Initi
 Maintain a versioned local corpus for relevance, relationships, stale/missing evidence, rights, misleading metadata, injection, outages, retries, concurrency, and handoff. Zero-tolerance gates: unauthorized operations, unsupported observed facts, schema-invalid persisted recommendations, forbidden tool path, duplicate logical handoff. Shared Agent Evaluation Lab integration is optional until its contracts stabilize. OTLP and Arize/Phoenix telemetry uses redacted IDs/versions and never stores restricted bytes, secrets, full prompts, or hidden reasoning.
 
 DigitalOcean Harness Runtime consumes root `langgraph.json`, a secret-free environment spec, managed credentials, and exact evaluated `FRAMEWORK_REPO_SHA`. #11 must record CLI version, confirm `doctl harness-runtime`, intended account, LangGraph support, private clone, spec, SHA, model and Snowflake connectivity before launch. Rollout is local → DEV → hosted manual → shadow → separate human handoff proof. Recurring schedule requires a later explicit owner decision.
+
+The hosted graph dependency assembly must pin its deployed code SHA, catalog
+discovery snapshot ID, and reviewed price-table version. `initialize_run`
+rejects mismatched input before creating `RUNS`; a caller-supplied value cannot
+rewrite deployment identity or make the context reader and candidate reader
+use different snapshots. Fixture dependencies may omit these pins, while a
+hosted bootstrap must set all three from reviewed configuration.

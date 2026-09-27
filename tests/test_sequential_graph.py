@@ -2,6 +2,8 @@
 
 from datetime import UTC, datetime
 
+import pytest
+
 from lyme_gap_atlas_dataset_discovery.adapters.fake import (
     FakeCandidateReader,
     FakeDiscoveryContextReader,
@@ -163,6 +165,53 @@ def test_valid_candidate_persists_and_finalizes() -> None:
     assert metadata.mode == "FIXTURE"
     assert metadata.evidence_snapshot_id == "fixture-snapshot"
     assert repository.runs["execution:run-1"].request_fingerprint == metadata.request_fingerprint
+
+
+@pytest.mark.parametrize(
+    "field,wrong_value",
+    [
+        ("code_sha", "b" * 40),
+        ("code_sha", "not-a-commit"),
+        ("evidence_snapshot_id", "another-snapshot"),
+        ("price_table_version", "unreviewed-price"),
+    ],
+)
+def test_deployment_pins_are_checked_before_run_creation(field: str, wrong_value: str) -> None:
+    repository = FakeRecommendationRepository()
+    graph = build_graph(
+        GraphDependencies(
+            reader=FakeCandidateReader(),
+            repository=repository,
+            planner=FakeCandidatePlanner({}),
+            deployed_code_sha="a" * 40,
+            expected_snapshot_id="fixture-snapshot",
+            approved_price_table_version="reviewed-price-v1",
+        )
+    )
+    state = input_state()
+    state["price_table_version"] = "reviewed-price-v1"
+    state[field] = wrong_value
+    with pytest.raises(ValueError, match="SHA|snapshot|price table"):
+        graph.invoke(state, config={"recursion_limit": 100})
+    assert repository.runs == {}
+
+
+def test_matching_deployment_pins_allow_run() -> None:
+    repository = FakeRecommendationRepository()
+    graph = build_graph(
+        GraphDependencies(
+            reader=FakeCandidateReader(),
+            repository=repository,
+            planner=FakeCandidatePlanner({}),
+            deployed_code_sha="a" * 40,
+            expected_snapshot_id="fixture-snapshot",
+            approved_price_table_version="reviewed-price-v1",
+        )
+    )
+    state = input_state()
+    state["price_table_version"] = "reviewed-price-v1"
+    result = graph.invoke(state, config={"recursion_limit": 100})
+    assert result["final_status"] == "SUCCEEDED_NO_NEW_CANDIDATES"
 
 
 def test_insufficient_candidate_does_not_stop_next_candidate() -> None:

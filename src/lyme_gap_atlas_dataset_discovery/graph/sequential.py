@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -62,6 +63,9 @@ class GraphDependencies:
     repository: RecommendationRepository
     planner: CandidatePlanner
     context_reader: DiscoveryContextReader | None = None
+    deployed_code_sha: str | None = None
+    expected_snapshot_id: str | None = None
+    approved_price_table_version: str | None = None
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)
     cancellation_requested: Callable[[], bool] = lambda: False
     sleep: Callable[[float], None] = time.sleep
@@ -226,6 +230,20 @@ def build_graph(deps: GraphDependencies) -> Any:
         )
         if any(not state.get(name) for name in required):
             raise ValueError("invalid run configuration: required identity missing")
+        if not re.fullmatch(r"[0-9a-f]{40}", state["code_sha"]):
+            raise ValueError("run code SHA must be an exact lowercase commit ID")
+        if deps.deployed_code_sha is not None and state["code_sha"] != deps.deployed_code_sha:
+            raise ValueError("run code SHA differs from deployed graph")
+        if (
+            deps.expected_snapshot_id is not None
+            and state["evidence_snapshot_id"] != deps.expected_snapshot_id
+        ):
+            raise ValueError("run discovery snapshot differs from pinned reader")
+        if (
+            deps.approved_price_table_version is not None
+            and state.get("price_table_version") != deps.approved_price_table_version
+        ):
+            raise ValueError("run price table differs from approved deployment")
         RunBudgetConfig(
             profile=state["profile"],
             limits=state["limits"],
