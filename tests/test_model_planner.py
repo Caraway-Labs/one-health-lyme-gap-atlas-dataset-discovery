@@ -57,15 +57,14 @@ def test_untrusted_metadata_is_only_user_data_and_usage_is_charged() -> None:
     captured: list[dict[str, Any]] = []
 
     def fake(_endpoint: str, _key: str, payload: dict[str, Any], _timeout: float) -> dict[str, Any]:
+        assert _endpoint == "https://model.example/v1/chat/completions"
         captured.append(payload)
         return response(
             {"relationship": "UNKNOWN", "basis": "no link", "supporting_observation_ids": []}
         )
 
     planner = ValidatedCandidatePlanner(
-        BoundedModelPlanner(
-            "https://model.example/v1/chat/completions", "model-1", "secret", PRICE, fake
-        )
+        BoundedModelPlanner("https://model.example/v1", "model-1", "secret", PRICE, fake)
     )
     result = planner.relationship(candidate, observations, allowance=ALLOWANCE)
     assert result.usage.input_tokens == 100

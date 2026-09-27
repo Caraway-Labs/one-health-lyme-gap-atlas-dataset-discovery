@@ -115,9 +115,12 @@ class BoundedModelPlanner:
             or url.username
             or url.password
             or url.fragment
-            or not url.path.endswith("/chat/completions")
+            or url.query
+            or not (
+                url.path.rstrip("/").endswith("/v1") or url.path.endswith("/v1/chat/completions")
+            )
         ):
-            raise ValueError("model endpoint must be a reviewed HTTPS chat completions URL")
+            raise ValueError("model endpoint must be a reviewed HTTPS v1 base URL")
         if self.model_id != self.price.model_id or not self.api_key:
             raise ValueError("model identity and reviewed price must match")
         if not 0 < self.timeout_seconds <= 30:
@@ -151,7 +154,10 @@ class BoundedModelPlanner:
         }
         if len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) > MAX_REQUEST_BYTES:
             raise ValueError("model request exceeded byte limit")
-        response = self.transport(self.endpoint, self.api_key, payload, self.timeout_seconds)
+        endpoint = self.endpoint.rstrip("/")
+        if not endpoint.endswith("/chat/completions"):
+            endpoint += "/chat/completions"
+        response = self.transport(endpoint, self.api_key, payload, self.timeout_seconds)
         try:
             choice = response["choices"]
             if not isinstance(choice, list) or len(choice) != 1:
