@@ -1,6 +1,7 @@
 """Allowlisted graph telemetry; candidate text and model output never enter spans."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 
 from lyme_gap_atlas_shared.observability import configure_tracing
 from opentelemetry import trace
@@ -29,11 +30,46 @@ _STRING_FIELDS = (
     "candidate_outcome_reason",
 )
 _COUNT_FIELDS = ("pages_loaded", "processed_count")
+_OPERATION_NAMES = {
+    "tool": frozenset({"candidate_batch", "governed_status", "observations", "identity_links"}),
+    "model": frozenset({"relationship", "classification", "rationale", "proposals"}),
+    "persistence": frozenset(
+        {"run_create", "recommendation_commit", "candidate_outcome", "run_finalize"}
+    ),
+}
 
 
 def configure_dataset_discovery_tracing() -> None:
     """Reuse the shared OTLP exporter, including a Phoenix OTLP endpoint if configured."""
     configure_tracing(SERVICE_NAME)
+
+
+@contextmanager
+def traced_operation(kind: str, operation: str, phase: str, attempt: int) -> Iterator[None]:
+    """Trace only fixed operation names and counters, never arguments or exception text."""
+    if operation not in _OPERATION_NAMES.get(kind, ()):
+        raise ValueError("unreviewed telemetry operation")
+    if phase not in ({"send", "lookup"} if kind == "persistence" else {"attempt"}):
+        raise ValueError("unreviewed telemetry phase")
+    if attempt < 1:
+        raise ValueError("telemetry attempt must be positive")
+    tracer = trace.get_tracer(SERVICE_NAME)
+    with tracer.start_as_current_span(
+        f"dataset_discovery.{kind}.{operation}",
+        record_exception=False,
+        set_status_on_exception=False,
+    ) as span:
+        span.set_attribute("atlas.discovery.operation_kind", kind)
+        span.set_attribute("atlas.discovery.operation_phase", phase)
+        span.set_attribute("atlas.discovery.attempt", attempt)
+        try:
+            yield
+        except Exception as error:
+            span.set_attribute("atlas.discovery.outcome", "ERROR")
+            span.set_attribute("atlas.discovery.error_type", type(error).__name__)
+            raise
+        else:
+            span.set_attribute("atlas.discovery.outcome", "OK")
 
 
 def traced_node(
@@ -42,7 +78,11 @@ def traced_node(
     tracer = trace.get_tracer(SERVICE_NAME)
 
     def invoke(state: DatasetDiscoveryState) -> DatasetDiscoveryState:
-        with tracer.start_as_current_span(f"dataset_discovery.{name}") as span:
+        with tracer.start_as_current_span(
+            f"dataset_discovery.{name}",
+            record_exception=False,
+            set_status_on_exception=False,
+        ) as span:
             for field in _STRING_FIELDS:
                 value = state.get(field)
                 if isinstance(value, str):
@@ -54,7 +94,13 @@ def traced_node(
             profile = state.get("profile")
             if profile is not None:
                 span.set_attribute("atlas.discovery.profile", profile.value)
-            result = fn(state)
+            try:
+                result = fn(state)
+            except Exception as error:
+                span.set_attribute("atlas.discovery.outcome", "ERROR")
+                span.set_attribute("atlas.discovery.error_type", type(error).__name__)
+                raise
+            span.set_attribute("atlas.discovery.outcome", "OK")
             for field in ("stop_reason", "final_status", "candidate_outcome_reason"):
                 value = result.get(field)
                 if isinstance(value, str):

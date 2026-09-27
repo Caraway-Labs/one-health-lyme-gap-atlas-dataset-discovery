@@ -34,6 +34,7 @@ from lyme_gap_atlas_dataset_discovery.domain.ranking import (
     rank_candidate,
 )
 from lyme_gap_atlas_dataset_discovery.domain.relationships import RelationshipResult
+from lyme_gap_atlas_dataset_discovery.observability import traced_operation
 from lyme_gap_atlas_dataset_discovery.ports.contracts import (
     CandidateReader,
     DiscoveryContextReader,
@@ -109,6 +110,7 @@ class ReportedUsageExceeded(BudgetExceeded):
 
 def _deliver_with_receipt_reconciliation[ReceiptT](
     *,
+    operation: str,
     send: Callable[[], ReceiptT],
     lookup: Callable[[], ReceiptT | None],
     accepts: Callable[[ReceiptT], bool],
@@ -118,13 +120,15 @@ def _deliver_with_receipt_reconciliation[ReceiptT](
     """Resolve a lost commit acknowledgment before resending an idempotent key."""
     for attempt in range(retries + 1):
         try:
-            receipt = send()
-            if not accepts(receipt):
-                raise ValueError("write returned a conflicting receipt")
+            with traced_operation("persistence", operation, "send", attempt + 1):
+                receipt = send()
+                if not accepts(receipt):
+                    raise ValueError("write returned a conflicting receipt")
             return receipt
         except (ConnectionError, TimeoutError):
             try:
-                committed = lookup()
+                with traced_operation("persistence", operation, "lookup", attempt + 1):
+                    committed = lookup()
             except (ConnectionError, TimeoutError):
                 committed = None
             if committed is not None:
@@ -145,6 +149,7 @@ def _stable_id(*parts: str) -> str:
 
 def _bounded_call[ResultT](
     *,
+    operation: str,
     call: Callable[[], ResultT],
     usage: BudgetUsage,
     limits: BudgetLimit,
@@ -159,7 +164,13 @@ def _bounded_call[ResultT](
     for attempt in range(retries + 1):
         current = charge_budget(current, limits, **{dimension: 1})
         try:
-            return call(), current
+            with traced_operation(
+                "tool" if dimension == "tool_calls" else "model",
+                operation,
+                "attempt",
+                attempt + 1,
+            ):
+                return call(), current
         except (ConnectionError, TimeoutError) as error:
             if attempt == retries:
                 raise RetryExhausted(error, current) from error
@@ -340,6 +351,7 @@ def build_graph(deps: GraphDependencies) -> Any:
             host_session_id=state.get("host_session_id"),
         )
         receipt: RunReceipt = _deliver_with_receipt_reconciliation(
+            operation="run_create",
             send=lambda: deps.repository.create_run(
                 operation_key=state["execution_key"],
                 run_id=state["requested_run_id"],
@@ -381,6 +393,7 @@ def build_graph(deps: GraphDependencies) -> Any:
             return {"stop_reason": "CANDIDATE_BUDGET", "final_status": "BUDGET_STOPPED"}
         usage = charge_budget(state["usage"], state["limits"], pages=1)
         page, usage = _bounded_call(
+            operation="candidate_batch",
             call=lambda: deps.reader.list_batch(
                 cursor=state["next_page_cursor"], limit=min(25, remaining)
             ),
@@ -424,6 +437,7 @@ def build_graph(deps: GraphDependencies) -> Any:
         if candidate is None:
             raise ValueError("no candidate selected")
         governed_status, usage = _bounded_call(
+            operation="governed_status",
             call=lambda: deps.reader.get_governed_status(_current(state)),
             usage=state["usage"],
             limits=state["limits"],
@@ -444,6 +458,7 @@ def build_graph(deps: GraphDependencies) -> Any:
         if governed_status != "UNKNOWN":
             raise PolicyViolation("governed status view returned an unknown policy value")
         observations, usage = _bounded_call(
+            operation="observations",
             call=lambda: deps.reader.get_observations(_current(state), limit=25),
             usage=usage,
             limits=state["limits"],
@@ -479,6 +494,7 @@ def build_graph(deps: GraphDependencies) -> Any:
         if candidate is None:
             raise ValueError("no candidate selected")
         links, usage = _bounded_call(
+            operation="identity_links",
             call=lambda: deps.reader.get_identity_links(_current(state)),
             usage=state["usage"],
             limits=state["limits"],
@@ -508,6 +524,7 @@ def build_graph(deps: GraphDependencies) -> Any:
             return deterministic_result
         allowance = _model_allowance(usage, state["limits"])
         response, usage = _bounded_call(
+            operation="relationship",
             call=lambda: planner_for(state).relationship(
                 candidate, state["current_observations"], allowance=allowance
             ),
@@ -530,6 +547,7 @@ def build_graph(deps: GraphDependencies) -> Any:
             raise ValueError("candidate relationship missing")
         allowance = _model_allowance(state["usage"], state["limits"])
         response, usage = _bounded_call(
+            operation="classification",
             call=lambda: planner_for(state).classify(
                 candidate, state["current_observations"], allowance=allowance
             ),
@@ -569,6 +587,7 @@ def build_graph(deps: GraphDependencies) -> Any:
             raise ValueError("candidate analysis missing")
         allowance = _model_allowance(state["usage"], state["limits"])
         response, usage = _bounded_call(
+            operation="rationale",
             call=lambda: planner_for(state).rationale(
                 analysis, state["current_observations"], allowance=allowance
             ),
@@ -590,6 +609,7 @@ def build_graph(deps: GraphDependencies) -> Any:
             raise ValueError("candidate analysis missing")
         allowance = _model_allowance(state["usage"], state["limits"])
         response, usage = _bounded_call(
+            operation="proposals",
             call=lambda: planner_for(state).proposals(
                 analysis, state["current_observations"], allowance=allowance
             ),
@@ -648,6 +668,7 @@ def build_graph(deps: GraphDependencies) -> Any:
             rationale=render_rationale(analysis.rationale_claims),
         )
         receipt = _deliver_with_receipt_reconciliation(
+            operation="recommendation_commit",
             send=lambda: deps.repository.save_recommendation(request),
             lookup=lambda: deps.repository.get_recommendation(operation_key),
             accepts=lambda item: (
@@ -686,6 +707,7 @@ def build_graph(deps: GraphDependencies) -> Any:
             reason_code=reason,
         )
         _deliver_with_receipt_reconciliation(
+            operation="candidate_outcome",
             send=lambda: deps.repository.record_candidate_outcome(requested),
             lookup=lambda: deps.repository.get_candidate_outcome(operation_key),
             accepts=lambda item: item == requested,
@@ -715,6 +737,7 @@ def build_graph(deps: GraphDependencies) -> Any:
             stop_reason=state.get("stop_reason"),
         )
         receipt = _deliver_with_receipt_reconciliation(
+            operation="run_finalize",
             send=lambda: deps.repository.finalize_run(requested),
             lookup=lambda: deps.repository.get_finalization(state["run_id"]),
             accepts=lambda item: item == requested,
