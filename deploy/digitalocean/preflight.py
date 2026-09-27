@@ -32,6 +32,8 @@ REQUIRED_NODES = {
 NONSECRET_VARS = {
     "ATLAS_DISCOVERY_SNAPSHOT_ID",
     "ATLAS_PRICE_TABLE_VERSION",
+    "ATLAS_PRICE_INPUT_USD_PER_MILLION",
+    "ATLAS_PRICE_OUTPUT_USD_PER_MILLION",
     "HARNESS_INFERENCE_BASE_URL",
     "HARNESS_INFERENCE_MODEL",
     "SNOWFLAKE_ACCOUNT",
@@ -91,7 +93,9 @@ def verify_sequential_graph() -> None:
     exported = manifest.get("graphs", {}).get("dataset_discovery")
     if not isinstance(exported, str) or not exported.endswith(":graph"):
         raise PreflightError("langgraph.json lacks the compiled Dataset Discovery graph")
-    module = importlib.import_module("lyme_gap_atlas_dataset_discovery.graph.entrypoint")
+    if not exported.endswith("graph/hosted_entrypoint.py:graph"):
+        raise PreflightError("hosted manifest must export the guarded sequential graph")
+    module = importlib.import_module("lyme_gap_atlas_dataset_discovery.graph.hosted_entrypoint")
     nodes = set(module.graph.get_graph().nodes)
     validate_graph_nodes(nodes)
 

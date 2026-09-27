@@ -50,6 +50,14 @@ def test_smoke_graph_does_not_satisfy_sequential_node_set() -> None:
         preflight.validate_graph_nodes({"__start__", "fixture_smoke", "__end__"})
 
 
+def test_manifest_exports_real_sequential_graph(monkeypatch: pytest.MonkeyPatch) -> None:
+    from test_hosted_graph import environment as hosted_environment
+
+    for name, value in hosted_environment().items():
+        monkeypatch.setenv(name, value)
+    preflight.verify_sequential_graph()
+
+
 def test_old_cli_version_syntax_is_recorded_without_pin(monkeypatch: pytest.MonkeyPatch) -> None:
     def command(*args: str, timeout: int = 30) -> str:
         assert timeout == 30

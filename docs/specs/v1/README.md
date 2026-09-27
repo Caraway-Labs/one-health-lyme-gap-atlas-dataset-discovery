@@ -69,6 +69,15 @@ rewrite deployment identity or make the context reader and candidate reader
 use different snapshots. Fixture dependencies may omit these pins, while a
 hosted bootstrap must set all three from reviewed configuration.
 
+The hosted entrypoint exports the full sequential graph and pins the
+`HOSTED_MANUAL` profile, model ID, provider, exact commit SHA, snapshot, and
+price-table version. The standalone foundation smoke graph remains available
+for credential-free development but is not the hosted manifest target. The
+first hosted composition is DEV-only. It opens a short PAT-backed Snowflake
+connection for each bounded read/write and checks effective user, role,
+database, and warehouse before any business SQL. Review events and handoffs
+remain outside this unattended runtime.
+
 The semantic planner adapter is a separate bounded port. It accepts only the
 reader's allowlisted observations and canonical candidate/analysis values,
 places catalog text in the user data message under fixed versioned system

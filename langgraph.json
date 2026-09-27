@@ -1,6 +1,6 @@
 {
   "dependencies": ["."],
   "graphs": {
-    "dataset_discovery": "./src/lyme_gap_atlas_dataset_discovery/graph/entrypoint.py:graph"
+    "dataset_discovery": "./src/lyme_gap_atlas_dataset_discovery/graph/hosted_entrypoint.py:graph"
   }
 }

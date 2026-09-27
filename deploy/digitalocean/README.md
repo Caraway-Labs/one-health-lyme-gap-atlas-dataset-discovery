@@ -29,7 +29,8 @@ pin a future CLI version into the application.
    actual `initialize_run` through `finalize_run` workflow. The
    [LangGraph runtime guide](https://docs.digitalocean.com/products/managed-agents/agent-harness-runtime/how-to/run-langgraph-agent/)
    requires a compiled graph, a dependency file, `langgraph.json`, and a pinned
-   repository commit. The foundation smoke graph fails this step.
+   repository commit. The hosted entrypoint now exports the sequential graph;
+   the separate foundation smoke module remains fixture-only.
 4. Verify the intended team has a GitHub connection authorized for the private
    repository. `GITHUB_TOKEN: oauth/github` is a managed secret reference; it
    is not a token literal. Connecting or replacing a team GitHub OAuth link is
@@ -55,6 +56,13 @@ pin a future CLI version into the application.
    OTLP/Phoenix endpoint, and bounded `HOSTED_MANUAL` profile. Validate the
    secret-bearing connection in a short, isolated DEV preflight without
    exposing values. If cost cannot be calculated, hosted model use is blocked.
+   Supply owner-reviewed `ATLAS_PRICE_INPUT_USD_PER_MILLION` and
+   `ATLAS_PRICE_OUTPUT_USD_PER_MILLION` with the recorded
+   `ATLAS_PRICE_TABLE_VERSION`. The hosted graph requires the dedicated
+   `OH_LYME_DEV_DATASET_DISCOVERY_RUNTIME` role and `OH_LYME_DEV` database.
+   Every Snowflake operation opens a short PAT-backed connection and checks
+   `CURRENT_USER`, `CURRENT_ROLE`, `CURRENT_DATABASE`, and
+   `CURRENT_WAREHOUSE` before using it. A mismatch closes the connection.
 8. Only after steps 1–7, launch one bounded manual session. Capture session ID,
    exact boot SHA, clone result, effective runtime role, run ID, trace ID,
    counters, persistence receipts, denied operations, and redacted diagnostics.

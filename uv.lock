@@ -511,6 +511,7 @@ dependencies = [
     { name = "langgraph" },
     { name = "one-health-lyme-gap-atlas-shared" },
     { name = "pydantic" },
+    { name = "snowflake-connector-python" },
 ]
 
 [package.optional-dependencies]
@@ -528,6 +529,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.10,<3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3,<9" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.9,<1" },
+    { name = "snowflake-connector-python", specifier = ">=4.3,<5" },
 ]
 provides-extras = ["dev", "eval"]
 

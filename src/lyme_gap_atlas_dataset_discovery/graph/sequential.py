@@ -66,6 +66,9 @@ class GraphDependencies:
     deployed_code_sha: str | None = None
     expected_snapshot_id: str | None = None
     approved_price_table_version: str | None = None
+    required_profile: RunProfile | None = None
+    expected_model_id: str | None = None
+    expected_model_provider: str | None = None
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)
     cancellation_requested: Callable[[], bool] = lambda: False
     sleep: Callable[[float], None] = time.sleep
@@ -234,6 +237,15 @@ def build_graph(deps: GraphDependencies) -> Any:
             raise ValueError("run code SHA must be an exact lowercase commit ID")
         if deps.deployed_code_sha is not None and state["code_sha"] != deps.deployed_code_sha:
             raise ValueError("run code SHA differs from deployed graph")
+        if deps.required_profile is not None and state["profile"] != deps.required_profile:
+            raise ValueError("run profile differs from deployed graph")
+        if deps.expected_model_id is not None and state.get("model_id") != deps.expected_model_id:
+            raise ValueError("run model differs from deployed graph")
+        if (
+            deps.expected_model_provider is not None
+            and state.get("model_provider") != deps.expected_model_provider
+        ):
+            raise ValueError("run provider differs from deployed graph")
         if (
             deps.expected_snapshot_id is not None
             and state["evidence_snapshot_id"] != deps.expected_snapshot_id
