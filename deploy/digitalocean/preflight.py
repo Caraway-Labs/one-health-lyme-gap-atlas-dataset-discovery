@@ -93,7 +93,7 @@ def validate_graph_nodes(nodes: set[str]) -> None:
         raise PreflightError("langgraph.json still exports a smoke or incomplete graph")
 
 
-def verify_sequential_graph() -> None:
+def verify_sequential_graph(profile: str = "HOSTED_MANUAL") -> None:
     manifest = json.loads((ROOT / "langgraph.json").read_text(encoding="utf-8"))
     if manifest.get("python_version") != "3.12":
         raise PreflightError("hosted Python version differs from application requirement")
@@ -110,7 +110,7 @@ def verify_sequential_graph() -> None:
     from lyme_gap_atlas_dataset_discovery.model_policy import LunaPriceTable, ModelPolicy
 
     graph_env = {
-        "ATLAS_DISCOVERY_PROFILE": "HOSTED_MANUAL",
+        "ATLAS_DISCOVERY_PROFILE": profile,
         "FRAMEWORK_REPO_SHA": "a" * 40,
         "ATLAS_DISCOVERY_SNAPSHOT_ID": "preflight-snapshot",
         "ATLAS_DISCOVERY_SEARCH_FINGERPRINT": "b" * 64,
@@ -138,7 +138,13 @@ def verify_sequential_graph() -> None:
     validate_graph_nodes(nodes)
 
 
-def render_spec(template: dict[str, Any], sha: str, environment: dict[str, str]) -> dict[str, Any]:
+def render_spec(
+    template: dict[str, Any],
+    sha: str,
+    environment: dict[str, str],
+    *,
+    profile: str = "HOSTED_MANUAL",
+) -> dict[str, Any]:
     """Resolve nonsecret fields only; doctl expands secret references at dry-run."""
     if not SHA.fullmatch(sha):
         raise PreflightError("FRAMEWORK_REPO_SHA must be an exact 40-character commit")
@@ -152,8 +158,11 @@ def render_spec(template: dict[str, Any], sha: str, environment: dict[str, str])
         "${FRAMEWORK_REPO_SHA}"
     ):
         raise PreflightError("framework repository or SHA template differs from reviewed contract")
-    if values.get("ATLAS_DISCOVERY_PROFILE") != "HOSTED_MANUAL":
-        raise PreflightError("first hosted profile must be HOSTED_MANUAL")
+    if (
+        profile not in {"HOSTED_MANUAL", "SHADOW"}
+        or values.get("ATLAS_DISCOVERY_PROFILE") != profile
+    ):
+        raise PreflightError("hosted profile differs from reviewed preflight")
     if set(secrets) != SECRET_VARS | {"GITHUB_TOKEN"} or secrets.get("GITHUB_TOKEN") != (
         "oauth/github"
     ):
@@ -195,7 +204,9 @@ def render_spec(template: dict[str, Any], sha: str, environment: dict[str, str])
     return rendered
 
 
-def preflight(sha: str, account_uuid: str, template_path: Path) -> dict[str, str]:
+def preflight(
+    sha: str, account_uuid: str, template_path: Path, *, profile: str = "HOSTED_MANUAL"
+) -> dict[str, str]:
     if not SHA.fullmatch(sha) or not UUID.fullmatch(account_uuid):
         raise PreflightError("exact commit SHA and intended account UUID are required")
     version = installed_doctl_version()
@@ -204,7 +215,7 @@ def preflight(sha: str, account_uuid: str, template_path: Path) -> dict[str, str
     account = _command("doctl", "account", "get", "--format", "UUID", "--no-header")
     if account.strip() != account_uuid:
         raise PreflightError("active DigitalOcean account differs from intended team")
-    verify_sequential_graph()
+    verify_sequential_graph(profile)
     if _command("git", "rev-parse", "HEAD") != sha:
         raise PreflightError("local checkout differs from evaluated SHA")
     if _command("git", "status", "--porcelain"):
@@ -213,7 +224,7 @@ def preflight(sha: str, account_uuid: str, template_path: Path) -> dict[str, str
     if remote != sha:
         raise PreflightError("evaluated SHA is unavailable in private GitHub repository")
     template = json.loads(template_path.read_text(encoding="utf-8"))
-    rendered = render_spec(template, sha, dict(os.environ))
+    rendered = render_spec(template, sha, dict(os.environ), profile=profile)
     secret_flags: list[str] = []
     for name in sorted(SECRET_VARS):
         file_name = os.environ.get(name + "_FILE")

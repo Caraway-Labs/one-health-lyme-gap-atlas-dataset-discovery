@@ -129,7 +129,7 @@ def test_preflight_uses_only_validation_and_dry_run_commands(
         monkeypatch.setenv(name + "_FILE", str(path))
     monkeypatch.setattr(preflight, "_command", command)
     monkeypatch.setattr(preflight, "installed_doctl_version", lambda: "reviewed-test-version")
-    monkeypatch.setattr(preflight, "verify_sequential_graph", lambda: None)
+    monkeypatch.setattr(preflight, "verify_sequential_graph", lambda _profile: None)
     report = preflight.preflight(sha, account_uuid, TEMPLATE)
     assert report["evaluated_sha"] == sha
     assert any(args[:3] == ("doctl", "harness-runtime", "validate") for args in calls)

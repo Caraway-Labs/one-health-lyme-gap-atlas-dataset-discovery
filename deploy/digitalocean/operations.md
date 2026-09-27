@@ -1,11 +1,12 @@
 # Dataset Discovery hosted operations (v1)
 
 This is the operator procedure for the reviewed, pinned LangGraph deployment.
-The current deployment template and executable preflight permit only a bounded
-`HOSTED_MANUAL` session. Shadow requires successful manual evidence and a
-separately reviewed spec. Recurring triggers remain disabled until explicit
-owner approval. All commands below refer to the owner-designated DigitalOcean
-team; confirm `doctl account get --format UUID --no-header` before using them.
+The manual template and preflight permit only a bounded `HOSTED_MANUAL` session.
+The separate shadow template and preflight support a manually invoked,
+three-candidate SHADOW run after successful manual evidence. Recurring triggers
+remain disabled until explicit owner approval. All commands below refer to the
+owner-designated DigitalOcean team; confirm
+`doctl account get --format UUID --no-header` before using them.
 
 The command names were checked against `doctl version 1.175.0-release` on
 2026-09-26. Recheck `doctl harness-runtime <command> --help` with the version
@@ -51,8 +52,8 @@ any resend. Do not manually insert migration or business receipts.
    finalization, and Phoenix trace. Inspect the persisted run and operation
    receipts using the approved least-privilege DEV read path.
 4. Treat an unavailable exporter or missing trace as missing observability
-   proof. Do not promote the configuration to shadow or scheduling on the
-   strength of application success alone.
+   proof. A small SHADOW runtime proof may proceed with that gap recorded;
+   scheduling still requires separate approval and evidence.
 
 ## Stop and incident response
 

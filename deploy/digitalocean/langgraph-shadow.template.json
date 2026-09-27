@@ -1,0 +1,43 @@
+{
+  "name": "atlas-dataset-discovery-shadow",
+  "agent": "langgraph",
+  "size": "mars-2vcpu-4gb",
+  "idle_timeout": "10m",
+  "env": {
+    "FRAMEWORK_REPO": "https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-dataset-discovery.git",
+    "FRAMEWORK_REPO_SHA": "${FRAMEWORK_REPO_SHA}",
+    "ATLAS_MODEL_PROVIDER": "openai",
+    "ATLAS_MODEL_ID": "gpt-6-luna",
+    "ATLAS_MODEL_API": "responses",
+    "ATLAS_MODEL_REASONING_EFFORT": "low",
+    "ATLAS_MODEL_POLICY_VERSION": "atlas-dd-model-v1",
+    "ATLAS_MODEL_CONFIG_FINGERPRINT": "${ATLAS_MODEL_CONFIG_FINGERPRINT}",
+    "SNOWFLAKE_ACCOUNT": "${SNOWFLAKE_ACCOUNT}",
+    "SNOWFLAKE_USER": "${SNOWFLAKE_USER}",
+    "SNOWFLAKE_ROLE": "${SNOWFLAKE_ROLE}",
+    "SNOWFLAKE_DATABASE": "${SNOWFLAKE_DATABASE}",
+    "SNOWFLAKE_WAREHOUSE": "${SNOWFLAKE_WAREHOUSE}",
+    "ATLAS_DISCOVERY_PROFILE": "SHADOW",
+    "ATLAS_DISCOVERY_SNAPSHOT_ID": "${ATLAS_DISCOVERY_SNAPSHOT_ID}",
+    "ATLAS_DISCOVERY_SEARCH_FINGERPRINT": "${ATLAS_DISCOVERY_SEARCH_FINGERPRINT}",
+    "ATLAS_PRICE_TABLE_VERSION": "${ATLAS_PRICE_TABLE_VERSION}"
+  },
+  "secrets": {
+    "GITHUB_TOKEN": "oauth/github",
+    "ATLAS_DD_DEV_OPENAI_API_KEY": "${ATLAS_DD_DEV_OPENAI_API_KEY}",
+    "ATLAS_DD_DEV_SNOWFLAKE_PAT": "${ATLAS_DD_DEV_SNOWFLAKE_PAT}"
+  },
+  "egress": {
+    "allow_hosts": [
+      "api.openai.com",
+      "github.com",
+      "api.github.com",
+      "pypi.org",
+      "files.pythonhosted.org",
+      "${SNOWFLAKE_EGRESS_HOST}"
+    ]
+  },
+  "permissions": {
+    "default": "ask"
+  }
+}
