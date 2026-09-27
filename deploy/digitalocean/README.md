@@ -99,11 +99,20 @@ CLI version into the application.
 
 The hosted graph can validate either `HOSTED_MANUAL` or `SHADOW` from its
 deployment environment and rejects a run state with a different profile. Both
-modes require `trigger_type=MANUAL`; `SCHEDULED` stays disabled. This checked-in
-template and its preflight remain `HOSTED_MANUAL` only. A shadow deployment
-requires a separately reviewed template/preflight after the manual session has
-been verified, with its own exact evaluated SHA and bounded run evidence. Merely
-changing this template's profile does not pass the first-session preflight.
+modes require `trigger_type=MANUAL`; `SCHEDULED` stays disabled. The original
+template and preflight remain `HOSTED_MANUAL` only. After the successful manual
+proof, `langgraph-shadow.template.json` and `shadow_preflight.py` gate a
+three-candidate, one-page sequential SHADOW run. Invoke
+`lyme_gap_atlas_dataset_discovery.hosted_shadow` with stable run, trace, and
+session IDs. Its ceilings are 12 model calls, 600 seconds, 36,000 input tokens,
+12,000 output tokens, and 36 cents estimated spend. The same Luna Low policy,
+DEV service principal, managed-secret slots, and egress allowlist apply.
+
+Run `uv run python deploy/digitalocean/shadow_preflight.py --sha
+<evaluated-40-char-sha> --account-uuid <owner-approved-team-uuid>` from the
+exact clean checkout. Verify no triggers before and after the run. If the
+approved Phoenix/OTLP destination is unavailable, record the observability gap
+without treating local spans as remote export proof.
 
 ## Read-only executable check
 
