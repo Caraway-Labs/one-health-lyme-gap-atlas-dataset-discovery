@@ -65,7 +65,8 @@ CLI version into the application.
    Supply owner-reviewed `ATLAS_PRICE_INPUT_USD_PER_MILLION` and
    `ATLAS_PRICE_OUTPUT_USD_PER_MILLION` with the recorded
    `ATLAS_PRICE_TABLE_VERSION`. The hosted graph requires the dedicated
-   `OH_LYME_DEV_DATASET_DISCOVERY_RUNTIME` role and `OH_LYME_DEV` database.
+   `OH_LYME_DEV_DATASET_DISCOVERY_RUNTIME` role and
+   `ONE_HEALTH_LYME_GAP_ATLAS_DEV` database.
    Every Snowflake operation opens a short PAT-backed connection and checks
    `CURRENT_USER`, `CURRENT_ROLE`, `CURRENT_DATABASE`, and
    `CURRENT_WAREHOUSE` before using it. A mismatch closes the connection.

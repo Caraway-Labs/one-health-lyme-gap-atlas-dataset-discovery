@@ -91,7 +91,7 @@ class HostedConfig:
             raise ValueError("invalid pinned discovery snapshot")
         if config.snowflake_role != "OH_LYME_DEV_DATASET_DISCOVERY_RUNTIME":
             raise ValueError("first hosted rollout requires dedicated DEV runtime role")
-        if config.snowflake_database != "OH_LYME_DEV":
+        if config.snowflake_database != "ONE_HEALTH_LYME_GAP_ATLAS_DEV":
             raise ValueError("first hosted rollout requires DEV database")
         if any(
             not _IDENTIFIER.fullmatch(value)

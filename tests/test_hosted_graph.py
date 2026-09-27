@@ -23,7 +23,7 @@ def environment() -> dict[str, str]:
         "SNOWFLAKE_ACCOUNT": "test-account",
         "SNOWFLAKE_USER": "DISCOVERY_SERVICE",
         "SNOWFLAKE_ROLE": "OH_LYME_DEV_DATASET_DISCOVERY_RUNTIME",
-        "SNOWFLAKE_DATABASE": "OH_LYME_DEV",
+        "SNOWFLAKE_DATABASE": "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
         "SNOWFLAKE_WAREHOUSE": "OH_LYME_DEV_WH",
         "SNOWFLAKE_PAT": "test-pat",
     }
@@ -53,7 +53,8 @@ def test_compilation_does_not_connect_and_exports_full_graph() -> None:
     [
         {"ATLAS_DISCOVERY_PROFILE": "FIXTURE"},
         {"SNOWFLAKE_ROLE": "ACCOUNTADMIN"},
-        {"SNOWFLAKE_DATABASE": "OH_LYME_PROD"},
+        {"SNOWFLAKE_DATABASE": "ONE_HEALTH_LYME_GAP_ATLAS_PROD"},
+        {"SNOWFLAKE_DATABASE": "OH_LYME_DEV"},
         {"FRAMEWORK_REPO_SHA": "main"},
         {"ATLAS_PRICE_INPUT_USD_PER_MILLION": "-1"},
     ],
