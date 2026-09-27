@@ -16,6 +16,7 @@ from lyme_gap_atlas_dataset_discovery.adapters.snowflake_reader import (
 from lyme_gap_atlas_dataset_discovery.adapters.snowflake_repository import (
     SnowflakeRecommendationRepository,
 )
+from lyme_gap_atlas_dataset_discovery.domain.models import CandidatePage
 from lyme_gap_atlas_dataset_discovery.model_policy import LunaPriceTable, ModelPolicy
 
 from .budgets import RunProfile
@@ -24,6 +25,38 @@ from .sequential import GraphDependencies, PolicyViolation, build_graph
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _FINGERPRINT = re.compile(r"^[0-9a-f]{64}$")
 _IDENTIFIER = re.compile(r"^[A-Z][A-Z0-9_]{1,127}$")
+_CANDIDATE_ID = re.compile(r"^candidate:[0-9a-f]{32}$")
+
+
+def validate_selected_candidate_ids(candidate_ids: Sequence[str]) -> tuple[str, ...]:
+    """Allow at most three unique, ordered identities from the pinned snapshot."""
+    selected = tuple(candidate_ids)
+    if not 1 <= len(selected) <= 3 or any(not _CANDIDATE_ID.fullmatch(value) for value in selected):
+        raise ValueError("bounded candidate selection requires one to three valid IDs")
+    if selected != tuple(sorted(set(selected))):
+        raise ValueError("bounded candidate selection requires unique keyset order")
+    return selected
+
+
+class SelectedSnowflakeCandidateReader(SnowflakeCandidateReader):
+    """Use only governed one-result reads for an operator-pinned small sample."""
+
+    def __init__(
+        self, *, discovery_run_id: str, connect: Callable[[], Any], candidate_ids: Sequence[str]
+    ) -> None:
+        super().__init__(discovery_run_id=discovery_run_id, connect=connect)
+        self._selected = validate_selected_candidate_ids(candidate_ids)
+
+    def list_batch(self, *, cursor: str | None, limit: int) -> CandidatePage:
+        self._limit(limit)
+        if cursor is not None:
+            return CandidatePage(candidates=(), next_cursor=None)
+        if len(self._selected) > limit:
+            raise ValueError("selected candidates exceed the run's candidate allowance")
+        return CandidatePage(
+            candidates=tuple(self.get_summary(candidate_id) for candidate_id in self._selected),
+            next_cursor=None,
+        )
 
 
 @dataclass(frozen=True)
@@ -203,6 +236,7 @@ def build_hosted_graph(
     config: HostedConfig,
     *,
     raw_connect: Callable[[HostedConfig], Any] = _snowflake_connect,
+    selected_candidate_ids: Sequence[str] | None = None,
 ) -> Any:
     """Wire real sequential nodes; verify Snowflake identity before every operation."""
     price = ReviewedModelPrice(
@@ -251,11 +285,18 @@ def build_hosted_graph(
             raise
         return _VerifiedLease(connection)
 
+    reader = (
+        SelectedSnowflakeCandidateReader(
+            discovery_run_id=config.snapshot_id,
+            connect=verified_connect,
+            candidate_ids=selected_candidate_ids,
+        )
+        if selected_candidate_ids is not None
+        else SnowflakeCandidateReader(discovery_run_id=config.snapshot_id, connect=verified_connect)
+    )
     return build_graph(
         GraphDependencies(
-            reader=SnowflakeCandidateReader(
-                discovery_run_id=config.snapshot_id, connect=verified_connect
-            ),
+            reader=reader,
             context_reader=SnowflakeDiscoveryContextReader(connect=verified_connect),
             repository=SnowflakeRecommendationRepository(_PerOperationConnection(verified_connect)),
             planner=planner,

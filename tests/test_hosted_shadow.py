@@ -1,5 +1,6 @@
 """Shadow proof remains bounded, manually triggered, and profile isolated."""
 
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -45,6 +46,32 @@ def test_shadow_refuses_manual_profile() -> None:
             trace_id="2" * 32,
             host_session_id="sess_abc123",
         )
+
+
+def test_shadow_selected_candidates_are_bounded_and_part_of_run_identity() -> None:
+    config = HostedConfig.from_environment({**environment(), "ATLAS_DISCOVERY_PROFILE": "SHADOW"})
+    selected = ("candidate:" + "1" * 32, "candidate:" + "2" * 32)
+    state = bounded_input(
+        config,
+        run_id="dd-shadow-" + "1" * 32,
+        trace_id="2" * 32,
+        host_session_id="01a0e40a-e1b0-7747-9313-262a92b3cf08",
+        selected_candidate_ids=selected,
+    )
+    assert (
+        state["tool_versions"]["candidate_selection_v1"]
+        == hashlib.sha256("|".join(selected).encode()).hexdigest()
+    )
+    assert state["model_fingerprint"] == config.model_fingerprint
+    for invalid in (selected[::-1], selected + (selected[0],), ("candidate:bad",)):
+        with pytest.raises(ValueError, match="candidate selection"):
+            bounded_input(
+                config,
+                run_id="dd-shadow-" + "1" * 32,
+                trace_id="2" * 32,
+                host_session_id="01a0e40a-e1b0-7747-9313-262a92b3cf08",
+                selected_candidate_ids=invalid,
+            )
 
 
 def test_shadow_spec_is_separate_and_manual_preflight_rejects_it() -> None:
