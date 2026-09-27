@@ -26,6 +26,18 @@ def test_hosted_manual_input_is_bounded_and_pinned() -> None:
     assert state["limits"].estimated_spend_cents == 12
 
 
+def test_hosted_manual_accepts_digitalocean_uuid_session_id() -> None:
+    config = HostedConfig.from_environment(environment())
+    session_id = "01a0e40a-e1b0-7747-9313-262a92b3cf08"
+    state = bounded_input(
+        config,
+        run_id="dd-hosted-manual-" + "1" * 32,
+        trace_id="2" * 32,
+        host_session_id=session_id,
+    )
+    assert state["host_session_id"] == session_id
+
+
 @pytest.mark.parametrize(
     ("run_id", "trace_id", "session_id"),
     [

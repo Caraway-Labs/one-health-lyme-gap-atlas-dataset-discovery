@@ -12,7 +12,9 @@ from lyme_gap_atlas_dataset_discovery.model_policy import ModelPolicy
 
 _RUN_ID = re.compile(r"^dd-hosted-manual-[0-9a-f]{32}$")
 _TRACE_ID = re.compile(r"^[0-9a-f]{32}$")
-_SESSION_ID = re.compile(r"^sess_[A-Za-z0-9_-]{3,128}$")
+_SESSION_ID = re.compile(
+    r"^(?:sess_[A-Za-z0-9_-]{3,128}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$"
+)
 
 
 def bounded_input(
