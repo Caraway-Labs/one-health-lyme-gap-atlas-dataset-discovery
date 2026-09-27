@@ -28,6 +28,22 @@ _DIMENSION_FIELDS: dict[str, frozenset[str]] = {
 }
 
 
+def validate_dimension_evidence(analysis: CandidateAnalysis, dimensions: RankingDimensions) -> None:
+    """A semantic score must cite a validated fact in a relevant metadata field."""
+    observed_fields_by_id: dict[str, set[str]] = {}
+    for fact in analysis.observed_facts:
+        observed_fields_by_id.setdefault(fact.evidence.observation_id, set()).add(fact.field)
+    for name, dimension in dimensions.model_dump().items():
+        citations = set(dimension["supporting_observation_ids"])
+        if not citations.issubset(observed_fields_by_id):
+            raise ValueError("semantic dimension cites no validated observed fact")
+        if dimension["value"] is not None and not any(
+            observed_fields_by_id[observation_id] & _DIMENSION_FIELDS[name]
+            for observation_id in citations
+        ):
+            raise ValueError("semantic dimension cites unrelated metadata fields")
+
+
 class ModelAllowance(StrictModel):
     max_input_tokens: int = Field(ge=0)
     max_output_tokens: int = Field(ge=0)
@@ -178,18 +194,7 @@ class ValidatedCandidatePlanner:
         if analysis.identity != candidate.identity:
             raise ValueError("semantic analysis changed canonical candidate identity")
         validate_analysis(analysis, available_evidence=observations)
-        observed_fields_by_id: dict[str, set[str]] = {}
-        for fact in analysis.observed_facts:
-            observed_fields_by_id.setdefault(fact.evidence.observation_id, set()).add(fact.field)
-        for name, dimension in dimensions.model_dump().items():
-            citations = set(dimension["supporting_observation_ids"])
-            if not citations.issubset(observed_fields_by_id):
-                raise ValueError("semantic dimension cites no validated observed fact")
-            if dimension["value"] is not None and not any(
-                observed_fields_by_id[observation_id] & _DIMENSION_FIELDS[name]
-                for observation_id in citations
-            ):
-                raise ValueError("semantic dimension cites unrelated metadata fields")
+        validate_dimension_evidence(analysis, dimensions)
         return proposed
 
     def rationale(

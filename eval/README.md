@@ -6,7 +6,7 @@
 uv run python -m lyme_gap_atlas_dataset_discovery.evaluation eval/corpora/v1/cases.json
 ```
 
-The command emits a JSON report and exits nonzero when any case fails. It checks retained-evidence fidelity before ranking and compares deterministic priority outputs to independently stated expectations. A fabricated observed fact is a hard failure in the application even though its corpus case passes when rejection is correctly observed. Unknown rights do not prevent a recommendation for investigation. Exact duplicates abstain.
+The command emits a JSON report and exits nonzero when any case fails. It checks retained-evidence fidelity before ranking, binds ranking citations to the analysis's validated observed facts, checks each scored dimension against relevant metadata fields, and compares deterministic bucket, score, abstention reason, and sort key to independently stated expectations. The v1 domain corpus covers high/medium/low priority, missing-evidence and unknown-relationship penalties, a mirror cap, duplicate abstention, fabricated facts, contradictory unknowns, absent citations, unrelated dimension fields, and catalog text containing a prompt injection. A rejected invalid case passes when its rejection is correctly observed. Unknown rights do not prevent a recommendation for investigation. The catalog-text case proves only the local evidence and ranking boundary; live model prompt-injection resistance still requires separate evaluation.
 
 The separate `corpora/v1/handoff.json` corpus exercises the human review and
 governed handoff fakes with exact event IDs and one logical receipt per replay:

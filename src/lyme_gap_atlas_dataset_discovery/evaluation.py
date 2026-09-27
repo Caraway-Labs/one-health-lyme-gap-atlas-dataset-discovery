@@ -4,11 +4,12 @@ import json
 import sys
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from .domain.analysis import AvailableObservation, CandidateAnalysis, validate_analysis
 from .domain.models import StrictModel
 from .domain.ranking import PriorityBucket, PriorityInput, rank_candidate
+from .graph.planner import validate_dimension_evidence
 
 
 class EvaluationCase(StrictModel):
@@ -21,6 +22,45 @@ class EvaluationCase(StrictModel):
     expected_bucket: PriorityBucket | None = None
     expected_score: int | None = None
     expected_abstain_reason: str | None = None
+    expected_priority_binding_valid: bool = True
+    expected_dimension_valid: bool = True
+    expected_sort_key: tuple[int, int, int, int, str, str] | None = None
+
+    @model_validator(mode="after")
+    def complete_expectations(self) -> "EvaluationCase":
+        if self.priority_input is None:
+            if (
+                self.expected_bucket is not None
+                or self.expected_score is not None
+                or self.expected_abstain_reason is not None
+                or self.expected_sort_key is not None
+                or not self.expected_priority_binding_valid
+                or not self.expected_dimension_valid
+            ):
+                raise ValueError("ranking expectation requires a priority input")
+        elif (
+            self.expected_priority_binding_valid
+            and self.expected_dimension_valid
+            and self.expected_evidence_valid
+        ):
+            if self.expected_bucket is None or self.expected_sort_key is None:
+                raise ValueError("valid priority input requires bucket and deterministic sort key")
+            if self.expected_bucket == PriorityBucket.ABSTAIN:
+                if self.expected_abstain_reason is None or self.expected_score is not None:
+                    raise ValueError("abstention needs reason and no score")
+            elif self.expected_score is None or self.expected_abstain_reason is not None:
+                raise ValueError("eligible priority needs score and no abstention reason")
+        elif any(
+            value is not None
+            for value in (
+                self.expected_bucket,
+                self.expected_score,
+                self.expected_abstain_reason,
+                self.expected_sort_key,
+            )
+        ):
+            raise ValueError("invalid evidence or binding cannot claim ranked output")
+        return self
 
 
 class EvaluationCorpus(StrictModel):
@@ -56,20 +96,41 @@ def evaluate_case(case: EvaluationCase) -> CaseResult:
         failures.append("evidence_validity_mismatch")
 
     if case.priority_input is not None:
-        if not evidence_valid:
-            failures.append("ranking_attempted_without_valid_evidence")
-        else:
+        observed_ids = {fact.evidence.observation_id for fact in case.analysis.observed_facts}
+        binding_valid = (
+            case.priority_input.resource_key == case.analysis.identity.resource_key
+            and case.priority_input.observed_evidence_ids == observed_ids
+        )
+        if binding_valid != case.expected_priority_binding_valid:
+            failures.append("priority_binding_mismatch")
+        if evidence_valid and binding_valid:
             try:
-                actual = rank_candidate(case.priority_input)
+                validate_dimension_evidence(case.analysis, case.priority_input.dimensions)
             except ValueError:
-                failures.append("priority_input_invalid")
+                dimension_valid = False
             else:
+                dimension_valid = True
+            if dimension_valid != case.expected_dimension_valid:
+                failures.append("dimension_validity_mismatch")
+            if dimension_valid:
+                try:
+                    actual = rank_candidate(case.priority_input)
+                except ValueError:
+                    failures.append("priority_input_invalid")
+                    return CaseResult(
+                        case_id=case.case_id,
+                        slice=case.slice,
+                        passed=False,
+                        failures=tuple(failures),
+                    )
                 if actual.bucket != case.expected_bucket:
                     failures.append("priority_bucket_mismatch")
                 if actual.score != case.expected_score:
                     failures.append("priority_score_mismatch")
                 if actual.abstain_reason != case.expected_abstain_reason:
                     failures.append("abstain_reason_mismatch")
+                if case.expected_sort_key is not None and actual.sort_key != case.expected_sort_key:
+                    failures.append("priority_sort_key_mismatch")
     return CaseResult(
         case_id=case.case_id, slice=case.slice, passed=not failures, failures=tuple(failures)
     )
