@@ -56,7 +56,8 @@ class FakeHumanHandoffClient:
         )
         boundary = (
             AcquisitionBoundary.NO_AUTOMATED_ACQUISITION
-            if finding == "KNOWN_RESTRICTED" or detail.resource_key in self.controlled_access
+            if finding in {"KNOWN_RESTRICTED", "KNOWN_PROHIBITED"}
+            or detail.resource_key in self.controlled_access
             else AcquisitionBoundary.INVESTIGATE_BEFORE_ACQUISITION
         )
         key = f"handoff-v1:{recommendation_version_id}"
