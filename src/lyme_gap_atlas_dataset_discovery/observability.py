@@ -43,7 +43,7 @@ _OPERATION_NAMES = {
 
 
 def configure_dataset_discovery_tracing() -> None:
-    """Reuse the shared OTLP exporter, including a Phoenix OTLP endpoint if configured."""
+    """Reuse the shared OTLP exporter with the configured hosted destination."""
     configure_tracing(SERVICE_NAME)
 
 

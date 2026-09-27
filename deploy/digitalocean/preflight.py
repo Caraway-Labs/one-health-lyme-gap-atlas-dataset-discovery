@@ -45,6 +45,14 @@ SECRET_VARS = {
     "ATLAS_DD_DEV_OPENAI_API_KEY",
     "ATLAS_DD_DEV_SNOWFLAKE_PAT",
 }
+SHADOW_SECRET_VARS = SECRET_VARS | {
+    "ATLAS_DD_DEV_ARIZE_API_KEY",
+    "ATLAS_DD_DEV_ARIZE_SPACE_ID",
+}
+ARIZE_OTLP_ENDPOINT = "https://otlp.arize.com/v1/traces"
+SHADOW_RESOURCE_ATTRIBUTES = (
+    "openinference.project.name=atlas-dataset-discovery,atlas.environment=DEV,atlas.mode=SHADOW"
+)
 SECRET_SENTINEL = "REQUIRED_INJECTION_VIA_SECRET_FLAG"
 EGRESS_VARS = {"SNOWFLAKE_EGRESS_HOST"}
 HOST = re.compile(r"^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$")
@@ -163,19 +171,25 @@ def render_spec(
         or values.get("ATLAS_DISCOVERY_PROFILE") != profile
     ):
         raise PreflightError("hosted profile differs from reviewed preflight")
-    if set(secrets) != SECRET_VARS | {"GITHUB_TOKEN"} or secrets.get("GITHUB_TOKEN") != (
+    secret_vars = SHADOW_SECRET_VARS if profile == "SHADOW" else SECRET_VARS
+    if set(secrets) != secret_vars | {"GITHUB_TOKEN"} or secrets.get("GITHUB_TOKEN") != (
         "oauth/github"
     ):
         raise PreflightError("private clone or managed secret inventory differs from contract")
-    for name in SECRET_VARS:
+    for name in secret_vars:
         if secrets[name] != "${" + name + "}":
             raise PreflightError(f"managed secret reference unavailable: {name}")
+    if profile == "SHADOW" and (
+        values.get("OTEL_EXPORTER_OTLP_ENDPOINT") != ARIZE_OTLP_ENDPOINT
+        or values.get("OTEL_RESOURCE_ATTRIBUTES") != SHADOW_RESOURCE_ATTRIBUTES
+    ):
+        raise PreflightError("SHADOW Arize AX OTLP routing differs from reviewed contract")
     rendered = copy.deepcopy(template)
     rendered["env"]["FRAMEWORK_REPO_SHA"] = sha
     # doctl expands ${VAR} before --secret flags are applied. A noncredential
     # sentinel lets validate inspect the spec; create --dry-run and the real
     # session must override both slots with file-backed --secret flags.
-    for name in SECRET_VARS:
+    for name in secret_vars:
         rendered["secrets"][name] = SECRET_SENTINEL
     for name in NONSECRET_VARS:
         if values.get(name) != "${" + name + "}" or not environment.get(name):
@@ -187,6 +201,8 @@ def render_spec(
     hosts = egress.get("allow_hosts")
     if not isinstance(hosts, list) or "api.openai.com" not in hosts:
         raise PreflightError("OpenAI provider egress is not allowlisted")
+    if profile == "SHADOW" and hosts.count("otlp.arize.com") != 1:
+        raise PreflightError("SHADOW Arize AX egress is not allowlisted")
     for name in EGRESS_VARS:
         marker = "${" + name + "}"
         value = environment.get(name)
@@ -226,7 +242,8 @@ def preflight(
     template = json.loads(template_path.read_text(encoding="utf-8"))
     rendered = render_spec(template, sha, dict(os.environ), profile=profile)
     secret_flags: list[str] = []
-    for name in sorted(SECRET_VARS):
+    secret_vars = SHADOW_SECRET_VARS if profile == "SHADOW" else SECRET_VARS
+    for name in sorted(secret_vars):
         file_name = os.environ.get(name + "_FILE")
         if not file_name:
             raise PreflightError(f"managed secret file reference unavailable: {name}")

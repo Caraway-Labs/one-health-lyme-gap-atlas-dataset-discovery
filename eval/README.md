@@ -57,14 +57,14 @@ provider metering in DEV.
 
 These are local fixture gates for Story #10. They are not a semantic model evaluation, a hosted trace, a human-adjudicated quality baseline, or governed handoff proof. Expand v1 with hosted policy injection, measured cost/latency, and human labels before promotion. Shared Agent Evaluation Lab integration can consume these corpora and report contracts when its runner stabilizes. Keep hard authority, evidence, schema, and security gates separate from averaged quality metrics.
 
-Graph construction enables the shared Atlas OTLP exporter when `OTEL_EXPORTER_OTLP_ENDPOINT` is configured. An approved Arize/Phoenix OTLP endpoint can be used there; exporter authorization headers belong in managed secrets. Each graph node emits an allowlisted span containing run/config/model version IDs, status, and budget counters. Candidate titles, metadata values, rationale text, full prompts, hidden reasoning, and exception messages are excluded. Exporter availability alone is not evaluation evidence: hosted acceptance still needs inspected traces for an exact deployed and evaluated SHA.
+Graph construction enables the shared Atlas OTLP exporter when `OTEL_EXPORTER_OTLP_ENDPOINT` is configured. The approved hosted destination is Arize AX SaaS through OTLP/HTTP; exporter authorization headers belong in managed secrets. Each graph node emits an allowlisted span containing run/config/model version IDs, status, and budget counters. Candidate titles, metadata values, rationale text, full prompts, hidden reasoning, and exception messages are excluded. Exporter availability alone is not evaluation evidence: hosted acceptance still needs inspected traces for an exact deployed and evaluated SHA.
 
 Bounded tool and model attempts and persistence send/receipt-lookup attempts
 emit separate child spans with fixed operation names, attempt numbers and
 outcome/error **type** only. Automatic OpenTelemetry exception recording is
 disabled for these and node spans so catalog text or connector messages cannot
 enter exported traces. Hosted acceptance must inspect actual traces and
-correlate them with run/session IDs; fixture spans alone do not prove Phoenix
+correlate them with run/session IDs; fixture spans alone do not prove Arize AX
 delivery.
 
 The separate human review and governed handoff services emit fixed-name request
