@@ -81,8 +81,12 @@ def test_effective_snowflake_identity_is_checked_before_business_sql() -> None:
             return self
 
         def fetchone(self) -> tuple[str, ...] | None:
-            return ("OTHER_USER", config.snowflake_role,
-                    config.snowflake_database, config.snowflake_warehouse)
+            return (
+                "OTHER_USER",
+                config.snowflake_role,
+                config.snowflake_database,
+                config.snowflake_warehouse,
+            )
 
         def close(self) -> None:
             pass
@@ -96,13 +100,19 @@ def test_effective_snowflake_identity_is_checked_before_business_sql() -> None:
 
     graph = build_hosted_graph(config, raw_connect=lambda _config: Connection())
     state = {
-        "execution_key": "manual-1", "requested_run_id": "run-1",
-        "profile": RunProfile.HOSTED_MANUAL, "trigger_type": "MANUAL",
-        "code_sha": config.code_sha, "spec_version": "v1", "graph_version": "v1",
-        "config_fingerprint": "b" * 64, "search_fingerprint": "c" * 64,
+        "execution_key": "manual-1",
+        "requested_run_id": "run-1",
+        "profile": RunProfile.HOSTED_MANUAL,
+        "trigger_type": "MANUAL",
+        "code_sha": config.code_sha,
+        "spec_version": "v1",
+        "graph_version": "v1",
+        "config_fingerprint": "b" * 64,
+        "search_fingerprint": "c" * 64,
         "evidence_snapshot_id": config.snapshot_id,
         "price_table_version": config.price_version,
-        "model_provider": "DIGITALOCEAN_HARNESS_INFERENCE", "model_id": config.model_id,
+        "model_provider": "DIGITALOCEAN_HARNESS_INFERENCE",
+        "model_id": config.model_id,
         "limits": PROFILE_DEFAULTS[RunProfile.HOSTED_MANUAL],
     }
     result = graph.invoke(state)
