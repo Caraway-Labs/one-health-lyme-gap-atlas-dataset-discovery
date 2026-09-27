@@ -68,3 +68,16 @@ rejects mismatched input before creating `RUNS`; a caller-supplied value cannot
 rewrite deployment identity or make the context reader and candidate reader
 use different snapshots. Fixture dependencies may omit these pins, while a
 hosted bootstrap must set all three from reviewed configuration.
+
+The semantic planner adapter is a separate bounded port. It accepts only the
+reader's allowlisted observations and canonical candidate/analysis values,
+places catalog text in the user data message under fixed versioned system
+instructions, and requests strict JSON for each of the four semantic steps.
+The wrapper then checks citations and observed values against retained evidence;
+deterministic ranking remains outside the model. A hosted bootstrap must supply
+an operator-reviewed HTTPS chat-completions endpoint, exact model ID, managed
+API credential, and price record with version plus USD per million input/output
+tokens. No price or model fallback is allowed. The adapter bounds request and
+response bytes, output tokens, timeout, response shape, model identity, and
+reported token usage. It rounds estimated spend up to whole cents for budget
+enforcement. Provider error bodies, prompt contents, and secrets are not logged.
