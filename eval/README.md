@@ -8,6 +8,19 @@ uv run python -m lyme_gap_atlas_dataset_discovery.evaluation eval/corpora/v1/cas
 
 The command emits a JSON report and exits nonzero when any case fails. It checks retained-evidence fidelity before ranking, binds ranking citations to the analysis's validated observed facts, checks each scored dimension against relevant metadata fields, and compares deterministic bucket, score, abstention reason, and sort key to independently stated expectations. The v1 domain corpus covers high/medium/low priority, missing-evidence and unknown-relationship penalties, a mirror cap, duplicate abstention, fabricated facts, contradictory unknowns, absent citations, unrelated dimension fields, and catalog text containing a prompt injection. A rejected invalid case passes when its rejection is correctly observed. Unknown rights do not prevent a recommendation for investigation. The catalog-text case proves only the local evidence and ranking boundary; live model prompt-injection resistance still requires separate evaluation.
 
+`corpora/v1/relationships.json` pins deterministic relationship precedence,
+including reviewed revision/supersession links and retained-content mirrors:
+
+```powershell
+uv run python -m lyme_gap_atlas_dataset_discovery.relationship_evaluation eval/corpora/v1/relationships.json
+```
+
+The invalid-link cases require retained evidence IDs for revision,
+supersession, and mirror claims. They verify the domain rule, not the existence
+of a live data-owned source-link feed. V111 currently exposes only exact
+catalog identity and same-dataset alternate distributions; it does not infer
+version or content links from metadata.
+
 The separate `corpora/v1/handoff.json` corpus exercises the human review and
 governed handoff fakes with exact event IDs and one logical receipt per replay:
 
