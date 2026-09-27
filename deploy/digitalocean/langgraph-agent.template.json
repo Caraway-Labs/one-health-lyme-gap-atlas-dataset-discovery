@@ -19,14 +19,12 @@
     "SNOWFLAKE_WAREHOUSE": "${SNOWFLAKE_WAREHOUSE}",
     "ATLAS_DISCOVERY_PROFILE": "HOSTED_MANUAL",
     "ATLAS_DISCOVERY_SNAPSHOT_ID": "${ATLAS_DISCOVERY_SNAPSHOT_ID}",
-    "ATLAS_PRICE_TABLE_VERSION": "${ATLAS_PRICE_TABLE_VERSION}",
-    "OTEL_EXPORTER_OTLP_ENDPOINT": "${OTEL_EXPORTER_OTLP_ENDPOINT}"
+    "ATLAS_PRICE_TABLE_VERSION": "${ATLAS_PRICE_TABLE_VERSION}"
   },
   "secrets": {
     "GITHUB_TOKEN": "oauth/github",
     "ATLAS_DD_DEV_OPENAI_API_KEY": "${ATLAS_DD_DEV_OPENAI_API_KEY}",
-    "SNOWFLAKE_PAT": "${SNOWFLAKE_PAT}",
-    "OTEL_EXPORTER_OTLP_HEADERS": "${OTEL_EXPORTER_OTLP_HEADERS}"
+    "SNOWFLAKE_PAT": "${SNOWFLAKE_PAT}"
   },
   "egress": {
     "allow_hosts": [
@@ -35,8 +33,7 @@
       "api.github.com",
       "pypi.org",
       "files.pythonhosted.org",
-      "${SNOWFLAKE_EGRESS_HOST}",
-      "${OTLP_EGRESS_HOST}"
+      "${SNOWFLAKE_EGRESS_HOST}"
     ]
   },
   "permissions": {

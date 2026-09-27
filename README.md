@@ -37,11 +37,16 @@ awaits data #450 owner/security approval, grants and protected DEV proof.
 The [DigitalOcean preflight](deploy/digitalocean/README.md) contains a
 secret-free Harness Runtime template and a read-only exact-SHA/account/CLI
 validator. The reviewed sequential graph is exported from `langgraph.json`.
-The upgraded local `doctl` accepts the manifest with synthetic values; the
-older binary still shadows it on `PATH`. Hosted manual launch awaits the
-owner-designated DigitalOcean account and private GitHub connection, managed
-credentials and reviewed model pricing, plus protected DEV Snowflake role and
-migration evidence. Local validation is not a hosted run.
+The owner accepted the versioned OpenAI `gpt-6-luna` low configuration for
+bounded `DEV_MANUAL` and `HOSTED_MANUAL` MVP operation. The current semantic
+evaluation shows conservative over-abstention; all persisted recommendations
+remain evidence-validated and require human review before governed handoff.
+The first real DEV manual run persisted one insufficient-evidence candidate
+outcome and finalized at its one-candidate budget. Scheduling remains disabled.
+The upgraded local `doctl` accepts the manifest; the older binary still
+shadows it on `PATH`. Hosted manual launch awaits the DigitalOcean prepayment
+gate, team private GitHub connection, and exact-SHA session proof. Local
+validation is not a hosted run.
 
 ## Backlog migration
 

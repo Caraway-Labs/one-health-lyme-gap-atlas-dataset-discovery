@@ -11,9 +11,10 @@ Local observation (2026-09-26): an older `1.160.1-release` binary is first on
 binary has `harness-runtime`, `validate`, and `create --dry-run`. With synthetic
 placeholder values, its local validator accepted the checked-in manifest and
 its dry run resolved `agent: langgraph`, the fixture SHA, and redacted secret
-slots. This proves CLI syntax and manifest shape only. The intended account,
-private team clone, actual secrets, model, Snowflake role, and hosted execution
-remain unverified. Record the version used at deployment; do not pin a future
+slots. This proves CLI syntax and manifest shape only. The owner-designated
+account and local DEV model/Snowflake roles have since been verified; private
+team clone, managed secrets, and hosted execution remain unverified. The team's
+Harness Runtime prepayment gate currently reports blocked. Record the version used at deployment; do not pin a future
 CLI version into the application.
 
 ## Ordered gate before the first manual session
@@ -25,11 +26,13 @@ CLI version into the application.
    set `ATLAS_DOCTL_BIN` to the absolute path of the reviewed `doctl.exe` for
    this preflight invocation. The script checks that file and records its
    reported version; it does not alter the system PATH.
-2. Re-authenticate the intended DigitalOcean team/account through the approved
-   operator context, then compare `doctl account get --format UUID --no-header`
-   to the owner-recorded expected account UUID. Do not print or inspect API
-   tokens. The account currently shown locally has not been designated as the
-   intended deployment team.
+2. Verify the intended DigitalOcean team/account through the approved operator
+   context, then compare `doctl account get --format UUID --no-header` to the
+   owner-recorded expected account UUID. The current account UUID is
+   `4ac2ca40-cc14-4e7d-8b32-14b8294cdd54` and contains the owner-designated
+   `TopX Lyme Challenge` project. Do not print or inspect API tokens. Check
+   `doctl harness-runtime balance`; a blocked prepayment gate requires an owner
+   or biller action before session creation.
 3. Confirm the CLI accepts `agent: langgraph` and the root manifest exports the
    actual `initialize_run` through `finalize_run` workflow. The
    [LangGraph runtime guide](https://docs.digitalocean.com/products/managed-agents/agent-harness-runtime/how-to/run-langgraph-agent/)
@@ -51,10 +54,11 @@ CLI version into the application.
    non-creating checks; the [CLI validator](https://docs.digitalocean.com/reference/doctl/reference/harness-runtime/validate/)
    catches credential placement and manifest-shape errors. Never print the
    fully expanded spec or credentials into tickets, logs, or this repository.
-   Supply exact `SNOWFLAKE_EGRESS_HOST` and `OTLP_EGRESS_HOST` names for the
-   intended account and exporter. The rendered host allowlist includes the
-   OpenAI API, private GitHub/bootstrap, Python package registry, Snowflake,
-   and OTLP endpoints. Validate whether platform-internal traffic requires any
+   Supply the exact `SNOWFLAKE_EGRESS_HOST` for the intended account. The
+   rendered MVP host allowlist includes the OpenAI API, private GitHub/bootstrap,
+   Python package registry, and Snowflake. The first manual session records a
+   trace ID, while remote OTLP export is deferred until an approved endpoint
+   and secret are available. Validate whether platform-internal traffic requires any
    further host before the first session; do not fall back to unrestricted egress.
 6. Supply the exact 40-character evaluated `FRAMEWORK_REPO_SHA`, verify local
    HEAD and the remote GitHub commit match it, and record the evaluation
@@ -63,8 +67,8 @@ CLI version into the application.
    the commit used for the rendered spec. A branch name is not a deployment
    identity. Re-evaluate after any code or spec change.
 7. Complete protected DEV Snowflake migrations, owner/security role review,
-   runtime principal and denial matrix, reviewed model price table, redacted
-   OTLP/Phoenix endpoint, and bounded `HOSTED_MANUAL` profile. Validate the
+   runtime principal and denial matrix, reviewed model price table, and bounded
+   `HOSTED_MANUAL` profile. Validate the
    secret-bearing connection in a short, isolated DEV preflight without
    exposing values. If cost cannot be calculated, hosted model use is blocked.
    Supply the exact versioned `ATLAS_PRICE_TABLE_VERSION` and
@@ -98,8 +102,8 @@ changing this template's profile does not pass the first-session preflight.
 ## Read-only executable check
 
 From the repository root, after setting nonsecret environment fields and
-the local `ATLAS_DD_DEV_OPENAI_API_KEY_FILE`, `SNOWFLAKE_PAT_FILE`, and
-`OTEL_EXPORTER_OTLP_HEADERS_FILE` paths to nonempty files outside the repository:
+the local `ATLAS_DD_DEV_OPENAI_API_KEY_FILE` and `SNOWFLAKE_PAT_FILE` paths to
+nonempty files outside the repository:
 
 ```powershell
 uv run python deploy/digitalocean/preflight.py --sha <evaluated-40-char-sha> --account-uuid <owner-approved-team-uuid>

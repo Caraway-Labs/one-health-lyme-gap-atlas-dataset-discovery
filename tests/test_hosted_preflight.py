@@ -20,7 +20,6 @@ def environment() -> dict[str, str]:
         **{name: "reviewed-nonsecret" for name in preflight.NONSECRET_VARS},
         **{name: "test-secret" for name in preflight.SECRET_VARS},
         "SNOWFLAKE_EGRESS_HOST": "account.snowflakecomputing.com",
-        "OTLP_EGRESS_HOST": "otel.example.com",
     }
 
 

@@ -1,7 +1,8 @@
 # GPT-6 Luna low candidate evaluation — DEV, 2026-09-27
 
-Status: **not promoted**. This is a semantic-model evaluation, not a real
-Dataset Discovery run, source review, or hosted runtime test.
+Status: **accepted for bounded DEV_MANUAL and HOSTED_MANUAL MVP operation by
+owner decision on 2026-09-27**. This is a semantic-model evaluation, not a
+source review or hosted runtime test.
 
 ## Exact configuration
 
@@ -42,11 +43,20 @@ mistakenly capped output at 1,024 tokens and produced one invalid result; that
 report is superseded. This report used the exact 2,048-token model policy,
 eliminated the schema failure, and still failed the semantic-quality gate.
 
-## Decision required before live DEV recommendation
+## Owner acceptance and limitation
 
-Keep `gpt-6-luna`/low as the initial candidate configuration, with scheduling
-disabled. Compare a new, separately fingerprinted prompt/evidence-packaging
-variant against this baseline, and consider an explicit Luna-medium comparison
-only with owner approval. Preserve the zero-tolerance governance gates and
-require a satisfactory semantic-quality baseline before a real recommendation,
-human review, handoff, or hosted deployment.
+Current Luna Low configuration is conservative and may over-abstain. This is
+accepted for bounded DEV/HOSTED_MANUAL MVP operation because all persisted
+recommendations remain evidence-validated and human-reviewed before governed
+handoff. The 1-of-9 bucket agreement remains a known quality limitation, not a
+manual-deployment gate. Model/prompt optimization is deferred. Hard evidence,
+privilege, and authority gates remain mandatory; scheduling remains disabled.
+
+The first real DEV_MANUAL execution processed one candidate from completed
+snapshot `0e886e34-2166-4eb6-8013-f57d2c0c9337` and persisted an
+`INSUFFICIENT_EVIDENCE` outcome with no recommendation. Run
+`dd-dev-manual-f56e353e126147eaa1e9f35235249e7e` finalized as
+`BUDGET_STOPPED` at the intentional one-candidate ceiling, with 2 model calls,
+2,104 input tokens, 1,268 output tokens, 2 cents of conservatively rounded
+estimated spend, and no bounded errors. Run, outcome, and finalization receipts
+were verified in Snowflake; exact operation replays returned the same receipts.

@@ -40,14 +40,12 @@ NONSECRET_VARS = {
     "SNOWFLAKE_ROLE",
     "SNOWFLAKE_DATABASE",
     "SNOWFLAKE_WAREHOUSE",
-    "OTEL_EXPORTER_OTLP_ENDPOINT",
 }
 SECRET_VARS = {
     "ATLAS_DD_DEV_OPENAI_API_KEY",
     "SNOWFLAKE_PAT",
-    "OTEL_EXPORTER_OTLP_HEADERS",
 }
-EGRESS_VARS = {"SNOWFLAKE_EGRESS_HOST", "OTLP_EGRESS_HOST"}
+EGRESS_VARS = {"SNOWFLAKE_EGRESS_HOST"}
 HOST = re.compile(r"^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
 UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
