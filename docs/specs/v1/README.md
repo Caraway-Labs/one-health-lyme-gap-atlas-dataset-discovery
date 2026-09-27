@@ -79,5 +79,8 @@ an operator-reviewed HTTPS `/v1` base URL, exact model ID, managed
 API credential, and price record with version plus USD per million input/output
 tokens. No price or model fallback is allowed. The adapter bounds request and
 response bytes, output tokens, timeout, response shape, model identity, and
-reported token usage. It rounds estimated spend up to whole cents for budget
+reported token usage. Before a call, request bytes plus a fixed envelope reserve
+input allowance and reviewed maximum output cost; reported usage is returned
+even when a provider exceeds its allowance so the graph can record measured
+tokens and stop the run. It rounds estimated spend up to whole cents for budget
 enforcement. Provider error bodies, prompt contents, and secrets are not logged.

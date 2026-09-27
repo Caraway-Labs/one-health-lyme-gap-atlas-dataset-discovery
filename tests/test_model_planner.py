@@ -40,7 +40,7 @@ def fixture() -> tuple[CandidateSummary, tuple[AvailableObservation, ...]]:
 
 PRICE = ReviewedModelPrice("reviewed-1", "model-1", Decimal("1"), Decimal("2"))
 ALLOWANCE = ModelAllowance(
-    max_input_tokens=1000, max_output_tokens=100, max_estimated_spend_cents=10
+    max_input_tokens=4000, max_output_tokens=100, max_estimated_spend_cents=10
 )
 
 
@@ -110,7 +110,6 @@ def test_usage_and_model_identity_fail_closed() -> None:
     for bad in (
         {**response({"proposals": []}), "usage": {}},
         {**response({"proposals": []}), "model": "different"},
-        response({"proposals": []}, prompt_tokens=1001),
     ):
         planner = BoundedModelPlanner(
             "https://model.example/v1/chat/completions",
@@ -121,6 +120,32 @@ def test_usage_and_model_identity_fail_closed() -> None:
         )
         with pytest.raises(ValueError):
             planner.relationship(candidate, observations, allowance=ALLOWANCE)
+
+
+def test_preflight_budget_prevents_call_and_reported_overage_is_retained() -> None:
+    candidate, observations = fixture()
+    calls: list[str] = []
+
+    def fake(
+        _endpoint: str, _key: str, _payload: dict[str, Any], _timeout: float
+    ) -> dict[str, Any]:
+        calls.append("called")
+        return response(
+            {"relationship": "UNKNOWN", "basis": "no link", "supporting_observation_ids": []},
+            prompt_tokens=4001,
+        )
+
+    planner = BoundedModelPlanner("https://model.example/v1", "model-1", "secret", PRICE, fake)
+    with pytest.raises(ValueError, match="model request exceeds remaining"):
+        planner.relationship(
+            candidate,
+            observations,
+            allowance=ALLOWANCE.model_copy(update={"max_input_tokens": 1}),
+        )
+    assert calls == []
+    result = planner.relationship(candidate, observations, allowance=ALLOWANCE)
+    assert calls == ["called"]
+    assert result.usage.input_tokens == 4001
 
 
 def test_endpoint_and_price_require_reviewed_identity() -> None:
