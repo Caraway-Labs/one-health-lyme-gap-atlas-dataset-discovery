@@ -83,7 +83,13 @@ CLI version into the application.
    Every Snowflake operation opens a short PAT-backed connection and checks
    `CURRENT_USER`, `CURRENT_ROLE`, `CURRENT_DATABASE`, and
    `CURRENT_WAREHOUSE` before using it. A mismatch closes the connection.
-8. Only after steps 1–7, launch one bounded manual session. Capture session ID,
+8. Only after steps 1–7, launch one bounded manual session. After it is ready,
+   invoke the installed graph once with `python -m
+   lyme_gap_atlas_dataset_discovery.hosted_manual` through `doctl
+   harness-runtime exec`, supplying stable `--run-id`, `--trace-id`, and
+   `--host-session-id` arguments. That entrypoint pins one candidate, one page,
+   four model calls, 300 seconds, and a 12-cent estimated-spend ceiling; it
+   prints only a sanitized outcome receipt. Capture session ID,
    exact boot SHA, clone result, effective runtime role, run ID, trace ID,
    counters, persistence receipts, denied operations, and redacted diagnostics.
    A failed private clone does not satisfy step 4.
@@ -102,7 +108,8 @@ changing this template's profile does not pass the first-session preflight.
 ## Read-only executable check
 
 From the repository root, after setting nonsecret environment fields and
-the local `ATLAS_DD_DEV_OPENAI_API_KEY_FILE` and `SNOWFLAKE_PAT_FILE` paths to
+the local `ATLAS_DD_DEV_OPENAI_API_KEY_FILE` and
+`ATLAS_DD_DEV_SNOWFLAKE_PAT_FILE` paths to
 nonempty files outside the repository:
 
 ```powershell

@@ -32,6 +32,7 @@ REQUIRED_NODES = {
 }
 NONSECRET_VARS = {
     "ATLAS_DISCOVERY_SNAPSHOT_ID",
+    "ATLAS_DISCOVERY_SEARCH_FINGERPRINT",
     "ATLAS_PRICE_TABLE_VERSION",
     "ATLAS_MODEL_CONFIG_FINGERPRINT",
     "SNOWFLAKE_ACCOUNT",
@@ -42,7 +43,7 @@ NONSECRET_VARS = {
 }
 SECRET_VARS = {
     "ATLAS_DD_DEV_OPENAI_API_KEY",
-    "SNOWFLAKE_PAT",
+    "ATLAS_DD_DEV_SNOWFLAKE_PAT",
 }
 SECRET_SENTINEL = "REQUIRED_INJECTION_VIA_SECRET_FLAG"
 EGRESS_VARS = {"SNOWFLAKE_EGRESS_HOST"}
@@ -112,6 +113,7 @@ def verify_sequential_graph() -> None:
         "ATLAS_DISCOVERY_PROFILE": "HOSTED_MANUAL",
         "FRAMEWORK_REPO_SHA": "a" * 40,
         "ATLAS_DISCOVERY_SNAPSHOT_ID": "preflight-snapshot",
+        "ATLAS_DISCOVERY_SEARCH_FINGERPRINT": "b" * 64,
         "ATLAS_PRICE_TABLE_VERSION": LunaPriceTable.standard_v1().version,
         "ATLAS_MODEL_CONFIG_FINGERPRINT": ModelPolicy.luna_low_v1().fingerprint,
         "ATLAS_MODEL_PROVIDER": "openai",
@@ -125,7 +127,7 @@ def verify_sequential_graph() -> None:
         "SNOWFLAKE_ROLE": "OH_LYME_DEV_DATASET_DISCOVERY_RUNTIME",
         "SNOWFLAKE_DATABASE": "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
         "SNOWFLAKE_WAREHOUSE": "OH_LYME_DEV_WH",
-        "SNOWFLAKE_PAT": "synthetic-preflight-only",
+        "ATLAS_DD_DEV_SNOWFLAKE_PAT": "synthetic-preflight-only",
     }
     config = HostedConfig.from_environment(graph_env)
 

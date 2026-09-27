@@ -22,6 +22,7 @@ from .budgets import RunProfile
 from .sequential import GraphDependencies, PolicyViolation, build_graph
 
 _SHA = re.compile(r"^[0-9a-f]{40}$")
+_FINGERPRINT = re.compile(r"^[0-9a-f]{64}$")
 _IDENTIFIER = re.compile(r"^[A-Z][A-Z0-9_]{1,127}$")
 
 
@@ -30,6 +31,7 @@ class HostedConfig:
     profile: RunProfile
     code_sha: str
     snapshot_id: str
+    search_fingerprint: str
     price_version: str
     inference_endpoint: str
     model_id: str
@@ -50,6 +52,7 @@ class HostedConfig:
         required = (
             "FRAMEWORK_REPO_SHA",
             "ATLAS_DISCOVERY_SNAPSHOT_ID",
+            "ATLAS_DISCOVERY_SEARCH_FINGERPRINT",
             "ATLAS_PRICE_TABLE_VERSION",
             "ATLAS_MODEL_CONFIG_FINGERPRINT",
             "ATLAS_MODEL_PROVIDER",
@@ -63,7 +66,7 @@ class HostedConfig:
             "SNOWFLAKE_ROLE",
             "SNOWFLAKE_DATABASE",
             "SNOWFLAKE_WAREHOUSE",
-            "SNOWFLAKE_PAT",
+            "ATLAS_DD_DEV_SNOWFLAKE_PAT",
         )
         try:
             profile = RunProfile(env.get("ATLAS_DISCOVERY_PROFILE", ""))
@@ -90,6 +93,7 @@ class HostedConfig:
                 profile=profile,
                 code_sha=env["FRAMEWORK_REPO_SHA"],
                 snapshot_id=env["ATLAS_DISCOVERY_SNAPSHOT_ID"],
+                search_fingerprint=env["ATLAS_DISCOVERY_SEARCH_FINGERPRINT"],
                 price_version=env["ATLAS_PRICE_TABLE_VERSION"],
                 inference_endpoint="https://api.openai.com/v1",
                 model_id=str(policy.document["model"]),
@@ -106,7 +110,7 @@ class HostedConfig:
                 snowflake_role=env["SNOWFLAKE_ROLE"],
                 snowflake_database=env["SNOWFLAKE_DATABASE"],
                 snowflake_warehouse=env["SNOWFLAKE_WAREHOUSE"],
-                snowflake_pat=env["SNOWFLAKE_PAT"],
+                snowflake_pat=env["ATLAS_DD_DEV_SNOWFLAKE_PAT"],
             )
         except InvalidOperation:
             raise ValueError("reviewed model prices must be decimal numbers") from None
@@ -114,6 +118,8 @@ class HostedConfig:
             raise ValueError("hosted graph requires exact deployed commit SHA")
         if not config.snapshot_id or len(config.snapshot_id) > 200:
             raise ValueError("invalid pinned discovery snapshot")
+        if not _FINGERPRINT.fullmatch(config.search_fingerprint):
+            raise ValueError("invalid pinned discovery search fingerprint")
         if config.snowflake_role != "OH_LYME_DEV_DATASET_DISCOVERY_RUNTIME":
             raise ValueError("first hosted rollout requires dedicated DEV runtime role")
         if config.snowflake_database != "ONE_HEALTH_LYME_GAP_ATLAS_DEV":

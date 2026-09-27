@@ -15,6 +15,7 @@ def environment() -> dict[str, str]:
         "ATLAS_DISCOVERY_PROFILE": "HOSTED_MANUAL",
         "FRAMEWORK_REPO_SHA": "a" * 40,
         "ATLAS_DISCOVERY_SNAPSHOT_ID": "snapshot-1",
+        "ATLAS_DISCOVERY_SEARCH_FINGERPRINT": "c" * 64,
         "ATLAS_PRICE_TABLE_VERSION": LunaPriceTable.standard_v1().version,
         "ATLAS_MODEL_CONFIG_FINGERPRINT": ModelPolicy.luna_low_v1().fingerprint,
         "ATLAS_MODEL_PROVIDER": "openai",
@@ -28,7 +29,7 @@ def environment() -> dict[str, str]:
         "SNOWFLAKE_ROLE": "OH_LYME_DEV_DATASET_DISCOVERY_RUNTIME",
         "SNOWFLAKE_DATABASE": "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
         "SNOWFLAKE_WAREHOUSE": "OH_LYME_DEV_WH",
-        "SNOWFLAKE_PAT": "test-pat",
+        "ATLAS_DD_DEV_SNOWFLAKE_PAT": "test-pat",
     }
 
 
@@ -74,7 +75,7 @@ def test_hosted_authority_and_price_configuration_fail_closed(change: dict[str, 
 
 def test_secret_or_price_missing_prevents_graph_export() -> None:
     values = environment()
-    del values["SNOWFLAKE_PAT"]
+    del values["ATLAS_DD_DEV_SNOWFLAKE_PAT"]
     with pytest.raises(ValueError, match="missing required"):
         HostedConfig.from_environment(values)
 
