@@ -671,10 +671,10 @@ def build_graph(deps: GraphDependencies) -> Any:
 
     def build_run_summary(state: DatasetDiscoveryState) -> DatasetDiscoveryState:
         if state.get("final_status"):
-            return {}
+            return clear_candidate_state()
         if state["persisted_recommendation_version_ids"]:
-            return {"final_status": "SUCCEEDED_WITH_RECOMMENDATIONS"}
-        return {"final_status": "SUCCEEDED_NO_NEW_CANDIDATES"}
+            return {**clear_candidate_state(), "final_status": "SUCCEEDED_WITH_RECOMMENDATIONS"}
+        return {**clear_candidate_state(), "final_status": "SUCCEEDED_NO_NEW_CANDIDATES"}
 
     def finalize_run(state: DatasetDiscoveryState) -> DatasetDiscoveryState:
         requested = RunFinalizationReceipt(

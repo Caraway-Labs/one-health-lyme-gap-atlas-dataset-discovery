@@ -22,6 +22,21 @@ impersonation attempt. These are credential-free domain gates. Data-owned V110
 transaction, policy stewardship, grants and live DEV session identity still
 need independent proof before hosted acceptance.
 
-This is the first local domain slice for Story #10. It is not a semantic model evaluation, a hosted trace, a human-adjudicated quality baseline, or governed handoff proof. Expand v1 with graph trajectory, policy injection, outages, replay, handoff, measured cost/latency, and human labels before promotion. Shared Agent Evaluation Lab integration can consume this corpus and report contract when its runner stabilizes. Keep hard authority, evidence, schema, and security gates separate from averaged quality metrics.
+The `corpora/v1/graph_trajectories.json` corpus pins the exact sequential
+LangGraph node path, terminal status, budgeted model/tool calls, candidate
+outcomes, and durable run/recommendation receipts. It includes no-candidate,
+valid, insufficient-evidence, already-governed, invalid-model, and unmetered
+model scenarios. Empty and successful runs are replayed with the same logical
+operation keys to verify one durable result after a lost acknowledgment:
+
+```powershell
+uv run python -m lyme_gap_atlas_dataset_discovery.graph_evaluation eval/corpora/v1/graph_trajectories.json
+```
+
+Terminal paths clear candidate-local graph state. The trajectory gate uses a
+fixed clock and fake adapters; it does not prove Snowflake concurrency or
+provider metering in DEV.
+
+These are local fixture gates for Story #10. They are not a semantic model evaluation, a hosted trace, a human-adjudicated quality baseline, or governed handoff proof. Expand v1 with hosted policy injection, outages, measured cost/latency, and human labels before promotion. Shared Agent Evaluation Lab integration can consume these corpora and report contracts when its runner stabilizes. Keep hard authority, evidence, schema, and security gates separate from averaged quality metrics.
 
 Graph construction enables the shared Atlas OTLP exporter when `OTEL_EXPORTER_OTLP_ENDPOINT` is configured. An approved Arize/Phoenix OTLP endpoint can be used there; exporter authorization headers belong in managed secrets. Each graph node emits an allowlisted span containing run/config/model version IDs, status, and budget counters. Candidate titles, metadata values, rationale text, full prompts, hidden reasoning, and exception messages are excluded. Exporter availability alone is not evaluation evidence: hosted acceptance still needs inspected traces for an exact deployed and evaluated SHA.
