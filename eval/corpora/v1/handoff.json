@@ -1,0 +1,82 @@
+{
+  "corpus_version": "dataset-discovery-handoff-v1",
+  "handoff_cases": [
+    {
+      "case_id": "unknown-rights-investigation",
+      "slice": "rights_unknown",
+      "expected_disposition": "HANDED_OFF",
+      "expected_boundary": "INVESTIGATE_BEFORE_ACQUISITION"
+    },
+    {
+      "case_id": "rights-review-required-investigation",
+      "slice": "rights_ambiguity",
+      "rights_assertion": "RIGHTS_REVIEW_REQUIRED",
+      "expected_disposition": "HANDED_OFF",
+      "expected_boundary": "INVESTIGATE_BEFORE_ACQUISITION"
+    },
+    {
+      "case_id": "reviewed-restricted-investigation",
+      "slice": "restricted_access",
+      "reviewed_rights_state": "KNOWN_RESTRICTED",
+      "expected_disposition": "HANDED_OFF",
+      "expected_boundary": "NO_AUTOMATED_ACQUISITION"
+    },
+    {
+      "case_id": "controlled-access-investigation",
+      "slice": "controlled_access",
+      "controlled_access": true,
+      "expected_disposition": "HANDED_OFF",
+      "expected_boundary": "NO_AUTOMATED_ACQUISITION"
+    },
+    {
+      "case_id": "reviewed-hard-prohibition",
+      "slice": "policy_prohibition",
+      "reviewed_rights_state": "KNOWN_PROHIBITED",
+      "expected_disposition": "POLICY_BLOCKED",
+      "expected_boundary": "NO_AUTOMATED_ACQUISITION"
+    },
+    {
+      "case_id": "already-governed-mirror",
+      "slice": "relationship_and_existing_source",
+      "relationship": "MIRROR",
+      "already_governed": true,
+      "expected_disposition": "ALREADY_GOVERNED",
+      "expected_boundary": "INVESTIGATE_BEFORE_ACQUISITION"
+    },
+    {
+      "case_id": "accepted-alternate-distribution",
+      "slice": "relationship_and_existing_source",
+      "relationship": "ALTERNATE_DISTRIBUTION",
+      "expected_disposition": "HANDED_OFF",
+      "expected_boundary": "INVESTIGATE_BEFORE_ACQUISITION"
+    },
+    {
+      "case_id": "rejected-review-cannot-handoff",
+      "slice": "review_authority",
+      "review_decision": "REJECT",
+      "expected_error_type": "ValueError",
+      "expected_error_contains": "rejected or stale"
+    },
+    {
+      "case_id": "stale-event-cannot-handoff",
+      "slice": "review_authority",
+      "use_stale_event": true,
+      "expected_error_type": "ValueError",
+      "expected_error_contains": "rejected or stale"
+    },
+    {
+      "case_id": "missing-evidence-cannot-handoff",
+      "slice": "evidence_integrity",
+      "remove_evidence_after_review": true,
+      "expected_error_type": "ValueError",
+      "expected_error_contains": "missing handoff evidence"
+    },
+    {
+      "case_id": "service-principal-cannot-handoff",
+      "slice": "principal_authority",
+      "handoff_principal_type": "USER_SERVICE",
+      "expected_error_type": "PermissionError",
+      "expected_error_contains": "individually authenticated"
+    }
+  ]
+}

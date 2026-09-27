@@ -1,0 +1,71 @@
+{
+  "corpus_version": "dataset-discovery-relationships-v1",
+  "cases": [
+    {
+      "case_id": "governed-key-precedes-other-links",
+      "slice": "governed_identity_precedence",
+      "signals": {"candidate_resource_key": "a", "candidate_catalog_dataset_id": "d", "known_resource_key": "a", "known_catalog_dataset_id": "d", "known_source_is_governed": true, "documented_supersedes_known": true, "supporting_observation_ids": ["reviewed-link-1"]},
+      "expected_relationship": "ALREADY_KNOWN", "expected_basis": "GOVERNED_RESOURCE_KEY"
+    },
+    {
+      "case_id": "same-key-exact-duplicate",
+      "slice": "exact_identity",
+      "signals": {"candidate_resource_key": "a", "candidate_catalog_dataset_id": "d1", "known_resource_key": "a", "known_catalog_dataset_id": "d2"},
+      "expected_relationship": "EXACT_DUPLICATE", "expected_basis": "EXACT_IDENTITY"
+    },
+    {
+      "case_id": "same-url-exact-duplicate",
+      "slice": "exact_identity",
+      "signals": {"candidate_resource_key": "a", "candidate_catalog_dataset_id": "d1", "candidate_canonical_url": "https://example.test/data", "known_resource_key": "b", "known_catalog_dataset_id": "d2", "known_canonical_url": "https://example.test/data"},
+      "expected_relationship": "EXACT_DUPLICATE", "expected_basis": "EXACT_IDENTITY"
+    },
+    {
+      "case_id": "reviewed-supersession",
+      "slice": "source_backed_version_link",
+      "signals": {"candidate_resource_key": "new", "candidate_catalog_dataset_id": "d1", "known_resource_key": "old", "known_catalog_dataset_id": "d2", "documented_supersedes_known": true, "supporting_observation_ids": ["reviewed-link-2"]},
+      "expected_relationship": "SUPERSESSION", "expected_basis": "DOCUMENTED_SUPERSESSION"
+    },
+    {
+      "case_id": "reviewed-revision",
+      "slice": "source_backed_version_link",
+      "signals": {"candidate_resource_key": "new", "candidate_catalog_dataset_id": "d1", "known_resource_key": "old", "known_catalog_dataset_id": "d2", "documented_revision_of_known": true, "supporting_observation_ids": ["reviewed-link-3"]},
+      "expected_relationship": "REVISION", "expected_basis": "DOCUMENTED_REVISION"
+    },
+    {
+      "case_id": "retained-content-mirror",
+      "slice": "retained_content_link",
+      "signals": {"candidate_resource_key": "a", "candidate_catalog_dataset_id": "d1", "known_resource_key": "b", "known_catalog_dataset_id": "d2", "same_retained_content_hash": true, "supporting_observation_ids": ["content-hash-1"]},
+      "expected_relationship": "MIRROR", "expected_basis": "SAME_RETAINED_CONTENT"
+    },
+    {
+      "case_id": "same-dataset-alternate-distribution",
+      "slice": "catalog_identity_link",
+      "signals": {"candidate_resource_key": "a", "candidate_catalog_dataset_id": "d", "known_resource_key": "b", "known_catalog_dataset_id": "d"},
+      "expected_relationship": "ALTERNATE_DISTRIBUTION", "expected_basis": "SAME_CATALOG_DATASET"
+    },
+    {
+      "case_id": "no-source-backed-link",
+      "slice": "unknown_not_inferred",
+      "signals": {"candidate_resource_key": "a", "candidate_catalog_dataset_id": "d1", "known_resource_key": "b", "known_catalog_dataset_id": "d2"},
+      "expected_relationship": "UNKNOWN", "expected_basis": "NO_DETERMINISTIC_LINK"
+    },
+    {
+      "case_id": "supersession-without-retained-evidence",
+      "slice": "missing_link_evidence_hard_gate",
+      "signals": {"candidate_resource_key": "new", "candidate_catalog_dataset_id": "d1", "known_resource_key": "old", "documented_supersedes_known": true},
+      "expected_invalid": true, "expected_error": "relationship link requires retained evidence"
+    },
+    {
+      "case_id": "revision-without-retained-evidence",
+      "slice": "missing_link_evidence_hard_gate",
+      "signals": {"candidate_resource_key": "new", "candidate_catalog_dataset_id": "d1", "known_resource_key": "old", "documented_revision_of_known": true},
+      "expected_invalid": true, "expected_error": "relationship link requires retained evidence"
+    },
+    {
+      "case_id": "mirror-without-retained-content-evidence",
+      "slice": "missing_link_evidence_hard_gate",
+      "signals": {"candidate_resource_key": "a", "candidate_catalog_dataset_id": "d1", "known_resource_key": "b", "same_retained_content_hash": true},
+      "expected_invalid": true, "expected_error": "relationship link requires retained evidence"
+    }
+  ]
+}

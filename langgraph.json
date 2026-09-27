@@ -1,0 +1,7 @@
+{
+  "dependencies": ["."],
+  "python_version": "3.12",
+  "graphs": {
+    "dataset_discovery": "./src/lyme_gap_atlas_dataset_discovery/graph/hosted_entrypoint.py:graph"
+  }
+}

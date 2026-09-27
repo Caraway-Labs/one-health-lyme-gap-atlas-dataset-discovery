@@ -1,0 +1,118 @@
+"""One bounded, explicit HOSTED_MANUAL invocation inside Harness Runtime."""
+
+import argparse
+import json
+import re
+from typing import Any
+
+from lyme_gap_atlas_dataset_discovery.graph.budgets import PROFILE_DEFAULTS, RunProfile
+from lyme_gap_atlas_dataset_discovery.graph.hosted import HostedConfig, build_hosted_graph
+from lyme_gap_atlas_dataset_discovery.graph.state import DatasetDiscoveryState
+from lyme_gap_atlas_dataset_discovery.model_policy import ModelPolicy
+
+_RUN_ID = re.compile(r"^dd-hosted-manual-[0-9a-f]{32}$")
+_TRACE_ID = re.compile(r"^[0-9a-f]{32}$")
+_SESSION_ID = re.compile(
+    r"^(?:sess_[A-Za-z0-9_-]{3,128}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$"
+)
+
+
+def bounded_input(
+    config: HostedConfig, *, run_id: str, trace_id: str, host_session_id: str
+) -> DatasetDiscoveryState:
+    """Keep replay identity stable and make the one-candidate ceiling explicit."""
+    if config.profile != RunProfile.HOSTED_MANUAL:
+        raise ValueError("first hosted invocation requires HOSTED_MANUAL")
+    if not _RUN_ID.fullmatch(run_id) or not _TRACE_ID.fullmatch(trace_id):
+        raise ValueError("run or trace identity is invalid")
+    if not _SESSION_ID.fullmatch(host_session_id):
+        raise ValueError("host session identity is invalid")
+    policy = ModelPolicy.luna_low_v1()
+    limits = PROFILE_DEFAULTS[RunProfile.HOSTED_MANUAL].model_copy(
+        update={
+            "candidates": 1,
+            "pages": 1,
+            "graph_steps": 100,
+            "model_calls": 4,
+            "tool_calls": 30,
+            "elapsed_seconds": 300,
+            "input_tokens": 12_000,
+            "output_tokens": 8_000,
+            "evidence_bytes": 65_536,
+            "retained_state_bytes": 131_072,
+            "estimated_spend_cents": 12,
+        }
+    )
+    return {
+        "execution_key": f"hosted-manual:{run_id}",
+        "requested_run_id": run_id,
+        "profile": RunProfile.HOSTED_MANUAL,
+        "trigger_type": "MANUAL",
+        "code_sha": config.code_sha,
+        "spec_version": "dataset-discovery-v1",
+        "graph_version": "dataset-discovery-sequential-v1",
+        "config_fingerprint": policy.fingerprint,
+        "search_fingerprint": config.search_fingerprint,
+        "evidence_snapshot_id": config.snapshot_id,
+        "model_provider": "OPENAI",
+        "model_id": config.model_id,
+        "model_fingerprint": config.model_fingerprint,
+        "price_table_version": config.price_version,
+        "prompt_versions": {"semantic": str(policy.document["prompt_version"])},
+        "tool_versions": {},
+        "eval_version": "dataset-discovery-domain-v1",
+        "trace_id": trace_id,
+        "host_session_id": host_session_id,
+        "limits": limits,
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Run one bounded hosted Dataset Discovery graph")
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--trace-id", required=True)
+    parser.add_argument("--host-session-id", required=True)
+    args = parser.parse_args(argv)
+    try:
+        config = HostedConfig.from_environment()
+        state = bounded_input(
+            config,
+            run_id=args.run_id,
+            trace_id=args.trace_id,
+            host_session_id=args.host_session_id,
+        )
+        result: dict[str, Any] = build_hosted_graph(config).invoke(
+            state, config={"recursion_limit": 100}
+        )
+        usage = result["usage"]
+        print(
+            json.dumps(
+                {
+                    "run_id": result.get("run_id", args.run_id),
+                    "host_session_id": args.host_session_id,
+                    "trace_id": args.trace_id,
+                    "code_sha": config.code_sha,
+                    "model_fingerprint": config.model_fingerprint,
+                    "final_status": result.get("final_status"),
+                    "stop_reason": result.get("stop_reason"),
+                    "candidate_ids": result.get("seen_candidate_ids", ()),
+                    "processed_count": result.get("processed_count", 0),
+                    "outcomes": result.get("processed_candidate_outcomes", ()),
+                    "recommendation_version_ids": result.get(
+                        "persisted_recommendation_version_ids", ()
+                    ),
+                    "usage": usage.model_dump(mode="json"),
+                    "bounded_error_types": result.get("bounded_errors", ()),
+                }
+            )
+        )
+        return 0 if result.get("final_status") not in {None, "FAILED", "CANCELLED"} else 1
+    except Exception as error:
+        # Never print exception messages or configuration: provider and
+        # connector libraries may include sensitive request context.
+        print(json.dumps({"run_id": args.run_id, "error_type": type(error).__name__}))
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
