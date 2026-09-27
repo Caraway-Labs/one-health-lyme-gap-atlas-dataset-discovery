@@ -42,6 +42,13 @@ Categories: `RELEVANT`, `POSSIBLY_RELEVANT`, `IRRELEVANT`, `INSUFFICIENT_EVIDENC
 
 Eligibility requires canonical identity, one stable evidence ref, and evidence sufficient to judge Atlas relevance. Irrelevant, exact duplicate, and already-governed cases are recorded but not ranked. Each validated dimension is 0, 1, or 2, with unknown contributing zero while remaining explicitly unknown: relevance ×5; geography ×3; variables ×4; time ×2; provenance/documentation ×3; freshness ×1; rights clarity ×1; complementarity ×2. Base score ranges 0–42. Subtract 2 for each unknown dimension and a further 2 for an unknown relationship, flooring at zero. A mirror or alternate distribution is capped at LOW unless its separate documented benefit supports a reviewed exception. Priority: HIGH ≥30, MEDIUM 18–29, LOW 0–17; ABSTAIN for ineligible candidates. Sort eligible recommendations by bucket, score descending, missing count ascending, then canonical key/version ascending. A new ranking-policy version is required to change weights, thresholds, or exception rules. The formula is priority **for investigation**, not approval, scientific validity, rights clearance, or ingestion readiness. A model may propose semantic dimensions only with evidence; deterministic code validates and scores.
 
+The sequential graph checks the bounded governed-status view before loading
+candidate observations or calling the model. An active governed version for the
+same canonical resource produces an `ALREADY_KNOWN` candidate outcome. An
+unrecognized status fails closed. Mirror, revision, supersession, and alternate
+distribution still require independently retained link signals from the data
+contract; semantic inference is not allowed to invent those exact relationships.
+
 ## Rights and human boundary
 
 Human review occurs outside the graph using an individual Snowflake-authenticated session. The CLI never accepts a self-asserted reviewer name. A caller-rights procedure would require direct reviewer table DML. Subject to owner/security approval in data ADR 0041, use an owner-rights procedure owned by a dedicated non-login write-owner role with narrowly granted `READ SESSION` on account. It derives the caller through `SYS_CONTEXT('SNOWFLAKE$SESSION', 'PRINCIPAL_NAME')` and `PRINCIPAL_TYPE`, verifies human reviewer role/allowlist, and stores the exact principal, decision, rationale, version and time in append-only `REVIEW_EVENTS`. The runtime identity cannot invoke it. If `READ SESSION` is not approved or the procedure cannot prove caller identity in DEV, review writes remain disabled pending a different reviewed boundary.

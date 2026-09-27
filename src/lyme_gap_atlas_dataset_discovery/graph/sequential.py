@@ -33,6 +33,7 @@ from lyme_gap_atlas_dataset_discovery.domain.ranking import (
     Relationship,
     rank_candidate,
 )
+from lyme_gap_atlas_dataset_discovery.domain.relationships import RelationshipResult
 from lyme_gap_atlas_dataset_discovery.ports.contracts import (
     CandidateReader,
     DiscoveryContextReader,
@@ -396,9 +397,29 @@ def build_graph(deps: GraphDependencies) -> Any:
         candidate = state["current_candidate"]
         if candidate is None:
             raise ValueError("no candidate selected")
+        governed_status, usage = _bounded_call(
+            call=lambda: deps.reader.get_governed_status(_current(state)),
+            usage=state["usage"],
+            limits=state["limits"],
+            dimension="tool_calls",
+            retries=state["limits"].retries_per_operation,
+            sleep=deps.sleep,
+        )
+        if governed_status == "ALREADY_GOVERNED":
+            return {
+                "usage": usage,
+                "current_relationship": RelationshipResult(
+                    relationship=Relationship.ALREADY_KNOWN,
+                    basis="GOVERNED_RESOURCE_KEY",
+                    supporting_observation_ids=(),
+                ),
+                "candidate_outcome_reason": Relationship.ALREADY_KNOWN.value,
+            }
+        if governed_status != "UNKNOWN":
+            raise PolicyViolation("governed status view returned an unknown policy value")
         observations, usage = _bounded_call(
             call=lambda: deps.reader.get_observations(_current(state), limit=25),
-            usage=state["usage"],
+            usage=usage,
             limits=state["limits"],
             dimension="tool_calls",
             retries=state["limits"].retries_per_operation,

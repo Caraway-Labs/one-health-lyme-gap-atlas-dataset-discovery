@@ -237,6 +237,42 @@ def test_insufficient_candidate_does_not_stop_next_candidate() -> None:
     assert repository.finalizations["run-1"].status == "SUCCEEDED_WITH_RECOMMENDATIONS"
 
 
+def test_already_governed_resource_records_outcome_without_model_or_evidence_read() -> None:
+    known, _, _ = fixture("known", with_evidence=False)
+
+    class NoEvidenceReader(FakeCandidateReader):
+        def get_observations(self, candidate_id: str, *, limit: int):  # type: ignore[no-untyped-def]
+            raise AssertionError("governed resource should not require candidate evidence")
+
+    reader = NoEvidenceReader(candidates=(known,), governed_statuses={"known": "ALREADY_GOVERNED"})
+    repository = FakeRecommendationRepository()
+    graph = build_graph(
+        GraphDependencies(reader=reader, repository=repository, planner=FakeCandidatePlanner({}))
+    )
+    result = graph.invoke(input_state(), config={"recursion_limit": 100})
+    assert result["final_status"] == "SUCCEEDED_NO_NEW_CANDIDATES"
+    assert result["processed_candidate_outcomes"] == ("ALREADY_KNOWN",)
+    assert result["usage"].model_calls == 0
+    assert result["usage"].tool_calls == 2  # batch plus governed-status view
+    assert repository.outcomes["outcome:run-1:known"].reason_code == "ALREADY_KNOWN"
+    assert not repository.recommendations
+
+
+def test_unknown_governed_status_value_stops_run_before_model() -> None:
+    candidate, _, _ = fixture("candidate")
+    reader = FakeCandidateReader(
+        candidates=(candidate,), governed_statuses={"candidate": "SOURCE_APPROVED"}
+    )
+    repository = FakeRecommendationRepository()
+    graph = build_graph(
+        GraphDependencies(reader=reader, repository=repository, planner=FakeCandidatePlanner({}))
+    )
+    result = graph.invoke(input_state(), config={"recursion_limit": 100})
+    assert result["final_status"] == "FAILED"
+    assert result["stop_reason"] == "assess_evidence_sufficiency:PolicyViolation"
+    assert not repository.recommendations
+
+
 def test_empty_run_is_durably_finalized() -> None:
     repository = FakeRecommendationRepository()
     graph = build_graph(
@@ -435,7 +471,7 @@ def test_evidence_reader_outage_is_systemic() -> None:
     result = graph.invoke(input_state(), config={"recursion_limit": 100})
     assert result["final_status"] == "FAILED"
     assert result["stop_reason"] == "assess_evidence_sufficiency:ConnectionError"
-    assert result["usage"].tool_calls == 2
+    assert result["usage"].tool_calls == 3
     assert repository.finalizations["run-1"].status == "FAILED"
 
 
@@ -502,7 +538,7 @@ def test_transient_reader_and_model_errors_retry_with_attempts_charged() -> None
     assert result["final_status"] == "SUCCEEDED_WITH_RECOMMENDATIONS"
     assert reader.attempts == 2
     assert planner.attempts == 2
-    assert result["usage"].tool_calls == 3  # page plus two evidence attempts
+    assert result["usage"].tool_calls == 4  # page, governed status, two evidence attempts
     assert result["usage"].model_calls == 5  # relationship twice; remaining nodes once
 
 

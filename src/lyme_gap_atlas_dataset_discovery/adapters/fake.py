@@ -23,6 +23,7 @@ class FakeCandidateReader:
     candidates: tuple[CandidateSummary, ...] = ()
     observations: dict[str, tuple[AvailableObservation, ...]] = field(default_factory=dict)
     discovery_run_id: str = "fixture-snapshot"
+    governed_statuses: dict[str, str] = field(default_factory=dict)
 
     def list_batch(self, *, cursor: str | None, limit: int) -> CandidatePage:
         if not 1 <= limit <= 25:
@@ -62,7 +63,7 @@ class FakeCandidateReader:
 
     def get_governed_status(self, candidate_id: str) -> str:
         self._find(candidate_id)
-        return "UNKNOWN"
+        return self.governed_statuses.get(candidate_id, "UNKNOWN")
 
     def _find(self, candidate_id: str) -> CandidateSummary:
         for candidate in self.candidates:
