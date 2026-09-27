@@ -14,6 +14,9 @@ dependencies = [
   "one-health-lyme-gap-atlas-shared @ git+https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-shared-python.git@v0.1.6",
 ]
 
+[project.scripts]
+dataset-discovery-review = "lyme_gap_atlas_dataset_discovery.review_cli:main"
+
 [project.optional-dependencies]
 dev = ["mypy>=1.14,<2", "pytest>=8.3,<9", "ruff>=0.9,<1"]
 eval = []

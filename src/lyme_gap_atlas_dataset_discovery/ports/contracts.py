@@ -16,6 +16,13 @@ from lyme_gap_atlas_dataset_discovery.domain.models import (
     RunReceipt,
 )
 from lyme_gap_atlas_dataset_discovery.domain.persistence import RecommendationWrite
+from lyme_gap_atlas_dataset_discovery.domain.review import (
+    PendingPage,
+    ReviewCommand,
+    ReviewDetail,
+    ReviewHistoryPage,
+    ReviewReceipt,
+)
 
 
 class DiscoveryContextReader(Protocol):
@@ -71,3 +78,19 @@ class ModelInterpreter(Protocol):
 
 class HandoffClient(Protocol):
     def get_status(self, recommendation_version_id: str) -> str: ...
+
+
+class HumanReviewRepository(Protocol):
+    """Separate from the inference graph's recommendation repository."""
+
+    def assert_human_session(self) -> None: ...
+
+    def list_pending(self, run_id: str, *, after_rank: int, limit: int) -> PendingPage: ...
+
+    def get_detail(self, recommendation_version_id: str) -> ReviewDetail: ...
+
+    def get_history(
+        self, recommendation_version_id: str, *, after_sequence: int, limit: int
+    ) -> ReviewHistoryPage: ...
+
+    def append_event(self, command: ReviewCommand) -> ReviewReceipt: ...
