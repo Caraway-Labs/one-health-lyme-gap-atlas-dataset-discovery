@@ -9,6 +9,7 @@ from lyme_gap_atlas_dataset_discovery.graph.budgets import PROFILE_DEFAULTS, Run
 from lyme_gap_atlas_dataset_discovery.graph.hosted import HostedConfig, build_hosted_graph
 from lyme_gap_atlas_dataset_discovery.graph.state import DatasetDiscoveryState
 from lyme_gap_atlas_dataset_discovery.model_policy import ModelPolicy
+from lyme_gap_atlas_dataset_discovery.observability import flush_dataset_discovery_tracing
 
 _RUN_ID = re.compile(r"^dd-hosted-manual-[0-9a-f]{32}$")
 _TRACE_ID = re.compile(r"^[0-9a-f]{32}$")
@@ -112,6 +113,8 @@ def main(argv: list[str] | None = None) -> int:
         # connector libraries may include sensitive request context.
         print(json.dumps({"run_id": args.run_id, "error_type": type(error).__name__}))
         return 1
+    finally:
+        flush_dataset_discovery_tracing()
 
 
 if __name__ == "__main__":

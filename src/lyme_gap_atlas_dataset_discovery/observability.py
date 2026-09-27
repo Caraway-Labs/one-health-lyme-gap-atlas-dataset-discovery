@@ -2,7 +2,7 @@
 
 import hashlib
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 
 from lyme_gap_atlas_shared.observability import configure_tracing
 from opentelemetry import trace
@@ -45,6 +45,14 @@ _OPERATION_NAMES = {
 def configure_dataset_discovery_tracing() -> None:
     """Reuse the shared OTLP exporter, including a Phoenix OTLP endpoint if configured."""
     configure_tracing(SERVICE_NAME)
+
+
+def flush_dataset_discovery_tracing() -> None:
+    """Flush short-lived hosted spans with the pinned shared-python release."""
+    with suppress(Exception):
+        flush = getattr(trace.get_tracer_provider(), "force_flush", None)
+        if callable(flush):
+            flush()
 
 
 @contextmanager
