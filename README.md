@@ -34,6 +34,12 @@ recommendation version and accepted review event. Its local fake supports
 replay and rights-boundary tests without Snowflake credentials. Live handoff
 awaits data #450 owner/security approval, grants and protected DEV proof.
 
+The [DigitalOcean preflight](deploy/digitalocean/README.md) contains a
+secret-free Harness Runtime template and a read-only exact-SHA/account/CLI
+validator. The installed `doctl` lacks `harness-runtime`, and `langgraph.json`
+still exports a foundation smoke graph. Hosted manual launch is gated on both
+repairs, the protected DEV contract, and reviewed model cost settings.
+
 ## Backlog migration
 
 The authoritative Dataset Discovery implementation backlog is moving into this repository, with backlinks to [data#80](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/issues/80) and [data#448](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/issues/448), [data#449](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/issues/449), [data#450](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/issues/450), and [data#451](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/issues/451).

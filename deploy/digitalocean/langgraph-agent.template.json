@@ -1,0 +1,28 @@
+{
+  "name": "atlas-dataset-discovery-manual",
+  "agent": "langgraph",
+  "size": "mars-2vcpu-4gb",
+  "idle_timeout": "10m",
+  "env": {
+    "FRAMEWORK_REPO": "https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-dataset-discovery.git",
+    "FRAMEWORK_REPO_SHA": "${FRAMEWORK_REPO_SHA}",
+    "HARNESS_INFERENCE_BASE_URL": "${HARNESS_INFERENCE_BASE_URL}",
+    "HARNESS_INFERENCE_MODEL": "${HARNESS_INFERENCE_MODEL}",
+    "SNOWFLAKE_ACCOUNT": "${SNOWFLAKE_ACCOUNT}",
+    "SNOWFLAKE_USER": "${SNOWFLAKE_USER}",
+    "SNOWFLAKE_ROLE": "${SNOWFLAKE_ROLE}",
+    "SNOWFLAKE_DATABASE": "${SNOWFLAKE_DATABASE}",
+    "SNOWFLAKE_WAREHOUSE": "${SNOWFLAKE_WAREHOUSE}",
+    "ATLAS_DISCOVERY_PROFILE": "HOSTED_MANUAL",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "${OTEL_EXPORTER_OTLP_ENDPOINT}"
+  },
+  "secrets": {
+    "GITHUB_TOKEN": "oauth/github",
+    "HARNESS_INFERENCE_API_KEY": "${HARNESS_INFERENCE_API_KEY}",
+    "SNOWFLAKE_PAT": "${SNOWFLAKE_PAT}",
+    "OTEL_EXPORTER_OTLP_HEADERS": "${OTEL_EXPORTER_OTLP_HEADERS}"
+  },
+  "permissions": {
+    "default": "ask"
+  }
+}
