@@ -59,7 +59,9 @@ def evaluate(corpus: Path, key_file: Path) -> dict[str, object]:
                 candidate,
                 observations,
                 allowance=ModelAllowance(
-                    max_input_tokens=20000, max_output_tokens=1024, max_estimated_spend_cents=10
+                    max_input_tokens=20000,
+                    max_output_tokens=int(policy.document["max_output_tokens_per_call"]),
+                    max_estimated_spend_cents=10,
                 ),
             )
             analysis, dimensions = answer.value

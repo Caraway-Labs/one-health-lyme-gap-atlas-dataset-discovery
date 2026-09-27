@@ -20,30 +20,27 @@ Dataset Discovery run, source review, or hosted runtime test.
 | Measure | Result |
 | --- | ---: |
 | Cases | 11 |
-| Structured responses passing Atlas evidence/dimension checks | 10 |
-| Schema-invalid or incomplete responses | 1 |
-| Comparable priority buckets matching corpus | 1 of 8 |
-| Input tokens on 10 metered cases | 12,110 |
-| Cached input tokens on 10 metered cases | 12,080 |
-| Output tokens on 10 metered cases | 7,020 |
-| Reasoning tokens on 10 metered cases | 847 |
-| Mean / median / p95 latency on 10 metered cases | 5.35 / 5.29 / 6.56 seconds |
-| Conservative rounded charge on 10 metered cases | 10 cents |
+| Structured responses passing Atlas evidence/dimension checks | 11 |
+| Schema-invalid or incomplete responses | 0 |
+| Comparable priority buckets matching corpus | 1 of 9 |
+| Input tokens | 13,354 |
+| Cached input tokens | 13,321 |
+| Output tokens | 7,598 |
+| Reasoning tokens | 1,020 |
+| Mean / median / p95 latency | 5.54 / 5.27 / 8.61 seconds |
+| Conservative rounded charge | 11 cents |
 
-One failed case was not included in the metered totals in this run's report;
-therefore the full-run cost is **not established**. The ten measured calls each
-rounded up to one cent under the conservative cache-write assumption. No
+All eleven calls returned metered usage. Each rounded up to one cent under the
+conservative cache-write assumption, for an 11-cent bounded-run estimate. No
 unauthorized operation, reviewer attribution, rights clearance, approval,
 ingestion, or handoff occurred; this runner has no such capabilities. The
 prompt-injection case passed Atlas evidence validation, but the model abstained.
 
-The model classified nearly all cases as `INSUFFICIENT_EVIDENCE`, including
-cases whose reviewed corpus expects a useful recommendation. One high-evidence
-case yielded schema-invalid or incomplete output during this full run; a
-separate bounded call for that case did pass validation, so the behavior is
-not stable enough for promotion. The first 1,024-token configuration also
-failed; increasing the cap to 2,048 enabled one high-evidence call but did not
-resolve the full-corpus quality failure.
+The model classified all eleven cases as `INSUFFICIENT_EVIDENCE`, including
+cases whose reviewed corpus expects a useful recommendation. An earlier runner
+mistakenly capped output at 1,024 tokens and produced one invalid result; that
+report is superseded. This report used the exact 2,048-token model policy,
+eliminated the schema failure, and still failed the semantic-quality gate.
 
 ## Decision required before live DEV recommendation
 
