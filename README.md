@@ -27,6 +27,13 @@ The reviewed [v1 implementation contract](docs/specs/v1/README.md) covers state,
 
 The draft [human review CLI](docs/operations/review-cli.md) runs separately from the inference graph and consumes the data-owned V109 review boundary. It is not enabled for live use until its role, principal-attribution and protected migration gates pass.
 
+The same human-only CLI has `handoff` and `handoff-status` commands backed by the
+draft data-owned V110 investigation intake procedure and receipt view. The
+typed client derives no rights or approval decision and sends only the exact
+recommendation version and accepted review event. Its local fake supports
+replay and rights-boundary tests without Snowflake credentials. Live handoff
+awaits data #450 owner/security approval, grants and protected DEV proof.
+
 ## Backlog migration
 
 The authoritative Dataset Discovery implementation backlog is moving into this repository, with backlinks to [data#80](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/issues/80) and [data#448](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/issues/448), [data#449](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/issues/449), [data#450](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/issues/450), and [data#451](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/issues/451).

@@ -3,6 +3,7 @@
 from typing import Protocol
 
 from lyme_gap_atlas_dataset_discovery.domain.analysis import AvailableObservation
+from lyme_gap_atlas_dataset_discovery.domain.handoff import HandoffReceipt, HandoffStatus
 from lyme_gap_atlas_dataset_discovery.domain.models import (
     CandidateIdentity,
     CandidateOutcomeReceipt,
@@ -77,7 +78,13 @@ class ModelInterpreter(Protocol):
 
 
 class HandoffClient(Protocol):
-    def get_status(self, recommendation_version_id: str) -> str: ...
+    """Human-only handoff boundary; excluded from graph dependencies."""
+
+    def assert_human_session(self) -> None: ...
+
+    def submit(self, recommendation_version_id: str, review_event_id: str) -> HandoffReceipt: ...
+
+    def get_status(self, recommendation_version_id: str) -> HandoffStatus | None: ...
 
 
 class HumanReviewRepository(Protocol):

@@ -8,10 +8,14 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from lyme_gap_atlas_dataset_discovery.adapters.snowflake_handoff import (
+    SnowflakeHumanHandoffClient,
+)
 from lyme_gap_atlas_dataset_discovery.adapters.snowflake_review import (
     SnowflakeHumanReviewRepository,
 )
 from lyme_gap_atlas_dataset_discovery.domain.review import ReviewDecision
+from lyme_gap_atlas_dataset_discovery.handoff_service import HumanHandoffService
 from lyme_gap_atlas_dataset_discovery.review_service import HumanReviewService
 
 _CONNECTION_NAME = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -43,6 +47,11 @@ def build_parser() -> argparse.ArgumentParser:
     history.add_argument("recommendation_version_id")
     history.add_argument("--after-sequence", type=int, default=0)
     history.add_argument("--limit", type=int, default=50)
+    handoff = commands.add_parser("handoff", help="submit an accepted version for investigation")
+    handoff.add_argument("recommendation_version_id")
+    handoff.add_argument("--review-event-id", required=True)
+    handoff_status = commands.add_parser("handoff-status", help="read the governed handoff receipt")
+    handoff_status.add_argument("recommendation_version_id")
     for name in _DECISIONS:
         decision = commands.add_parser(name)
         decision.add_argument("recommendation_version_id")
@@ -86,6 +95,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                     after_sequence=args.after_sequence,
                     limit=args.limit,
                 )
+            elif args.command == "handoff":
+                result = HumanHandoffService(SnowflakeHumanHandoffClient(connection)).submit(
+                    args.recommendation_version_id, args.review_event_id
+                )
+            elif args.command == "handoff-status":
+                status = HumanHandoffService(SnowflakeHumanHandoffClient(connection)).status(
+                    args.recommendation_version_id
+                )
+                if status is None:
+                    raise KeyError(args.recommendation_version_id)
+                result = status
             else:
                 result = service.decide(
                     args.recommendation_version_id,

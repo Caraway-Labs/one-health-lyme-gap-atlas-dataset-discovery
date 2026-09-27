@@ -39,3 +39,18 @@ inspect `show` and `history` before any new human decision.
 `ACCEPTED_FOR_INVESTIGATION` creates no source approval, rights clearance,
 payload acquisition, or ingestion. The separate data-owned handoff must be
 explicitly invoked after review and preserves the exact review event.
+
+After the data-owned V110 handoff boundary is approved and applied, use the
+accepted version's exact `review_event_id` from `history`:
+
+```powershell
+dataset-discovery-review --connection <human-review-pat-name> handoff <recommendation-version-id> --review-event-id <accepted-review-event-id>
+dataset-discovery-review --connection <human-review-pat-name> handoff-status <recommendation-version-id>
+```
+
+The handoff call is idempotent for the version and event. Retry the same call
+after a lost response, or read `handoff-status`. Unknown rights still enter
+investigation; controlled access has no automated acquisition. The governed
+queue and policy findings remain data-owned. `POLICY_BLOCKED` requires a
+separate reviewed hard prohibition. The reviewer connection cannot write the
+policy finding, source decision, source version, or ingestion tables.
