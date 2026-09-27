@@ -194,6 +194,13 @@ def _charge_model_result[T](
 def build_graph(deps: GraphDependencies) -> Any:
     """Compile one-candidate-at-a-time graph; production adapters are injected."""
 
+    from lyme_gap_atlas_dataset_discovery.observability import (
+        configure_dataset_discovery_tracing,
+        traced_node,
+    )
+
+    configure_dataset_discovery_tracing()
+
     validated_planner = (
         deps.planner
         if isinstance(deps.planner, ValidatedCandidatePlanner)
@@ -709,9 +716,12 @@ def build_graph(deps: GraphDependencies) -> Any:
             name,
             cast(
                 Any,
-                handler
-                if name in {"initialize_run", "build_run_summary", "finalize_run"}
-                else guard(name, handler),
+                traced_node(
+                    name,
+                    handler
+                    if name in {"initialize_run", "build_run_summary", "finalize_run"}
+                    else guard(name, handler),
+                ),
             ),
         )
     builder.add_edge(START, "initialize_run")
