@@ -7,8 +7,10 @@ from typing import Any
 
 from lyme_gap_atlas_dataset_discovery.domain.analysis import AvailableObservation
 from lyme_gap_atlas_dataset_discovery.domain.models import (
+    CandidateArtifactMetadata,
     CandidateIdentity,
     CandidatePage,
+    CandidatePriorAssessment,
     CandidateSummary,
     DiscoveryContext,
     EvidenceRef,
@@ -45,6 +47,18 @@ WHERE discovery_run_id = %s AND resource_key = %s
 AND catalog_dataset_id = %s AND catalog_resource_id = %s
 ORDER BY CASE relationship WHEN 'EXACT_DUPLICATE' THEN 0 ELSE 1 END,
 linked_resource_key, linked_catalog_resource_id LIMIT 2"""
+_PRIOR_ASSESSMENT = """SELECT resource_key, catalog_dataset_id, catalog_resource_id,
+dataset_quality_assessment_id, assessment_status, assessed_at
+FROM DATASET_DISCOVERY.V_CANDIDATE_PRIOR_ASSESSMENT
+WHERE discovery_run_id = %s AND resource_key = %s
+AND catalog_dataset_id = %s AND catalog_resource_id = %s LIMIT 2"""
+_ARTIFACT_METADATA = """SELECT resource_key, catalog_dataset_id, catalog_resource_id,
+observation_id, artifact_id, artifact_type, media_type, byte_count,
+sha256, retention_class, created_at
+FROM DATASET_DISCOVERY.V_CANDIDATE_ARTIFACT_METADATA
+WHERE discovery_run_id = %s AND resource_key = %s
+AND catalog_dataset_id = %s AND catalog_resource_id = %s
+AND observation_id = %s LIMIT 2"""
 _CONTEXT = """SELECT discovery_run_id, search_fingerprint, completed_at, status
 FROM DATASET_DISCOVERY.V_DISCOVERY_CONTEXT
 WHERE discovery_run_id = %s LIMIT 2"""
@@ -281,6 +295,79 @@ class SnowflakeCandidateReader:
         if any(link.candidate != identity for link in links):
             raise ValueError("identity link view returned another candidate")
         return links
+
+    def get_prior_assessment(self, candidate_id: str) -> CandidatePriorAssessment | None:
+        identity = self.get_identity(candidate_id)
+        rows = self._query(
+            _PRIOR_ASSESSMENT,
+            (
+                self.discovery_run_id,
+                identity.resource_key,
+                identity.catalog_dataset_id,
+                identity.catalog_resource_id,
+            ),
+            max_bytes=2048,
+            max_rows=2,
+        )
+        if len(rows) > 1:
+            raise ValueError("ambiguous prior assessment")
+        if not rows:
+            return None
+        row = rows[0]
+        result = CandidatePriorAssessment(
+            identity=CandidateIdentity(
+                resource_key=_returned_id(row[0], "resource key", 500),
+                catalog_dataset_id=_returned_id(row[1], "catalog dataset ID", 200),
+                catalog_resource_id=_returned_id(row[2], "catalog resource ID", 200),
+            ),
+            assessment_id=_returned_id(row[3], "assessment ID", 200),
+            assessment_status=_returned_id(row[4], "assessment status", 100),
+            assessed_at=_timestamp(row[5]),
+        )
+        if result.identity != identity:
+            raise ValueError("prior assessment view returned another candidate")
+        return result
+
+    def get_artifact_metadata(
+        self, candidate_id: str, observation_id: str
+    ) -> CandidateArtifactMetadata | None:
+        identity = self.get_identity(candidate_id)
+        observation_id = _returned_id(observation_id, "observation ID", 200)
+        rows = self._query(
+            _ARTIFACT_METADATA,
+            (
+                self.discovery_run_id,
+                identity.resource_key,
+                identity.catalog_dataset_id,
+                identity.catalog_resource_id,
+                observation_id,
+            ),
+            max_bytes=4096,
+            max_rows=2,
+        )
+        if len(rows) > 1:
+            raise ValueError("ambiguous artifact metadata")
+        if not rows:
+            return None
+        row = rows[0]
+        result = CandidateArtifactMetadata(
+            identity=CandidateIdentity(
+                resource_key=_returned_id(row[0], "resource key", 500),
+                catalog_dataset_id=_returned_id(row[1], "catalog dataset ID", 200),
+                catalog_resource_id=_returned_id(row[2], "catalog resource ID", 200),
+            ),
+            observation_id=_returned_id(row[3], "observation ID", 200),
+            artifact_id=_returned_id(row[4], "artifact ID", 200),
+            artifact_type=_returned_id(row[5], "artifact type", 100),
+            media_type=row[6],
+            byte_count=row[7],
+            sha256=row[8],
+            retention_class=_returned_id(row[9], "retention class", 100),
+            created_at=_timestamp(row[10]),
+        )
+        if result.identity != identity or result.observation_id != observation_id:
+            raise ValueError("artifact metadata view returned another observation")
+        return result
 
 
 class SnowflakeDiscoveryContextReader:

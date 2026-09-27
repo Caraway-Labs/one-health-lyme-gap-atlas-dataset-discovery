@@ -5,9 +5,11 @@ from typing import Protocol
 from lyme_gap_atlas_dataset_discovery.domain.analysis import AvailableObservation
 from lyme_gap_atlas_dataset_discovery.domain.handoff import HandoffReceipt, HandoffStatus
 from lyme_gap_atlas_dataset_discovery.domain.models import (
+    CandidateArtifactMetadata,
     CandidateIdentity,
     CandidateOutcomeReceipt,
     CandidatePage,
+    CandidatePriorAssessment,
     CandidateSummary,
     DiscoveryContext,
     EvidenceRef,
@@ -47,6 +49,12 @@ class CandidateReader(Protocol):
     def get_governed_status(self, candidate_id: str) -> str: ...
 
     def get_identity_links(self, candidate_id: str) -> tuple[IdentityLink, ...]: ...
+
+    def get_prior_assessment(self, candidate_id: str) -> CandidatePriorAssessment | None: ...
+
+    def get_artifact_metadata(
+        self, candidate_id: str, observation_id: str
+    ) -> CandidateArtifactMetadata | None: ...
 
 
 class RecommendationRepository(Protocol):

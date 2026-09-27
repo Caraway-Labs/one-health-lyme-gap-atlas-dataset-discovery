@@ -4,9 +4,11 @@ from dataclasses import dataclass, field
 
 from lyme_gap_atlas_dataset_discovery.domain.analysis import AvailableObservation
 from lyme_gap_atlas_dataset_discovery.domain.models import (
+    CandidateArtifactMetadata,
     CandidateIdentity,
     CandidateOutcomeReceipt,
     CandidatePage,
+    CandidatePriorAssessment,
     CandidateSummary,
     DiscoveryContext,
     EvidenceRef,
@@ -26,6 +28,10 @@ class FakeCandidateReader:
     discovery_run_id: str = "fixture-snapshot"
     governed_statuses: dict[str, str] = field(default_factory=dict)
     identity_links: dict[str, tuple[IdentityLink, ...]] = field(default_factory=dict)
+    prior_assessments: dict[str, CandidatePriorAssessment] = field(default_factory=dict)
+    artifact_metadata: dict[tuple[str, str], CandidateArtifactMetadata] = field(
+        default_factory=dict
+    )
 
     def list_batch(self, *, cursor: str | None, limit: int) -> CandidatePage:
         if not 1 <= limit <= 25:
@@ -73,6 +79,26 @@ class FakeCandidateReader:
         if any(link.candidate != candidate.identity for link in links):
             raise ValueError("identity link returned for another candidate")
         return links[:2]
+
+    def get_prior_assessment(self, candidate_id: str) -> CandidatePriorAssessment | None:
+        identity = self._find(candidate_id).identity
+        item = self.prior_assessments.get(candidate_id)
+        if item is not None and item.identity != identity:
+            raise ValueError("prior assessment returned for another candidate")
+        return item
+
+    def get_artifact_metadata(
+        self, candidate_id: str, observation_id: str
+    ) -> CandidateArtifactMetadata | None:
+        candidate = self._find(candidate_id)
+        if observation_id not in {ref.observation_id for ref in candidate.evidence_refs}:
+            raise ValueError("artifact observation is not declared by candidate")
+        item = self.artifact_metadata.get((candidate_id, observation_id))
+        if item is not None and (
+            item.identity != candidate.identity or item.observation_id != observation_id
+        ):
+            raise ValueError("artifact metadata returned for another observation")
+        return item
 
     def _find(self, candidate_id: str) -> CandidateSummary:
         for candidate in self.candidates:

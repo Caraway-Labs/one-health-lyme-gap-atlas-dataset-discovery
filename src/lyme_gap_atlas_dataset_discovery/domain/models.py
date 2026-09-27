@@ -61,6 +61,29 @@ class CandidatePage(StrictModel):
     next_cursor: str | None = None
 
 
+class CandidatePriorAssessment(StrictModel):
+    """Prior governed context; never a Dataset Discovery priority or approval."""
+
+    identity: CandidateIdentity
+    assessment_id: str = Field(min_length=1, max_length=200)
+    assessment_status: str = Field(min_length=1, max_length=100)
+    assessed_at: str = Field(min_length=1)
+
+
+class CandidateArtifactMetadata(StrictModel):
+    """Provenance metadata only; no URI or artifact retrieval capability."""
+
+    identity: CandidateIdentity
+    observation_id: str = Field(min_length=1, max_length=200)
+    artifact_id: str = Field(min_length=1, max_length=200)
+    artifact_type: str = Field(min_length=1, max_length=100)
+    media_type: str | None = Field(default=None, max_length=200)
+    byte_count: int = Field(ge=0)
+    sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
+    retention_class: str = Field(min_length=1, max_length=100)
+    created_at: str = Field(min_length=1)
+
+
 class DiscoveryContext(StrictModel):
     discovery_run_id: str = Field(min_length=1)
     search_fingerprint: str = Field(min_length=64, max_length=64)

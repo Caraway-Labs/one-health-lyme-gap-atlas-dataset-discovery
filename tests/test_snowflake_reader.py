@@ -110,6 +110,78 @@ def test_identity_link_for_another_candidate_fails_closed() -> None:
         reader.get_identity_links("key")
 
 
+def test_prior_assessment_is_snapshot_pinned_context_only() -> None:
+    stamp = datetime(2026, 9, 26, tzinfo=UTC)
+    row = ("key", "dataset-1", "resource-1", "assessment-1", "PENDING_REVIEW", stamp)
+    db = Connection([summary("key")], [row])
+    reader = SnowflakeCandidateReader(discovery_run_id="snapshot-1", connect=lambda: db)
+    assessment = reader.get_prior_assessment("key")
+    assert assessment is not None
+    assert assessment.assessment_status == "PENDING_REVIEW"
+    assert not hasattr(assessment, "overall_score")
+    sql, params, timeout = db.calls[-1]
+    assert "V_CANDIDATE_PRIOR_ASSESSMENT" in sql
+    assert "LIMIT 2" in sql
+    assert params == ("snapshot-1", "key", "dataset-1", "resource-1")
+    assert timeout == 15
+
+
+def test_artifact_metadata_has_no_uri_and_requires_exact_observation() -> None:
+    stamp = datetime(2026, 9, 26, tzinfo=UTC)
+    row = (
+        "key",
+        "dataset-1",
+        "resource-1",
+        "observation-1",
+        "artifact-1",
+        "CATALOG_METADATA",
+        "application/json",
+        128,
+        "a" * 64,
+        "PRIVATE",
+        stamp,
+    )
+    db = Connection([summary("key")], [row])
+    reader = SnowflakeCandidateReader(discovery_run_id="snapshot-1", connect=lambda: db)
+    observation_id = "observation-1"
+    artifact = reader.get_artifact_metadata("key", observation_id)
+    assert artifact is not None
+    assert artifact.sha256 == "a" * 64
+    assert not hasattr(artifact, "artifact_uri")
+    sql, params, timeout = db.calls[-1]
+    assert "V_CANDIDATE_ARTIFACT_METADATA" in sql
+    assert "artifact_uri" not in sql.lower()
+    assert params == ("snapshot-1", "key", "dataset-1", "resource-1", "observation-1")
+    assert timeout == 15
+
+
+def test_context_views_reject_ambiguous_or_cross_candidate_results() -> None:
+    stamp = datetime(2026, 9, 26, tzinfo=UTC)
+    assessment = ("key", "dataset-1", "resource-1", "a1", "PENDING_REVIEW", stamp)
+    db = Connection([summary("key")], [assessment, assessment])
+    reader = SnowflakeCandidateReader(discovery_run_id="snapshot-1", connect=lambda: db)
+    with pytest.raises(ValueError, match="ambiguous prior assessment"):
+        reader.get_prior_assessment("key")
+    wrong_artifact = (
+        "other",
+        "dataset-1",
+        "resource-1",
+        "observation-1",
+        "artifact-1",
+        "CATALOG_METADATA",
+        None,
+        0,
+        "a" * 64,
+        "PRIVATE",
+        stamp,
+    )
+    db = Connection([summary("key")], [wrong_artifact])
+    reader = SnowflakeCandidateReader(discovery_run_id="snapshot-1", connect=lambda: db)
+    observation_id = "observation-1"
+    with pytest.raises(ValueError, match="another observation"):
+        reader.get_artifact_metadata("key", observation_id)
+
+
 def test_evidence_query_pins_snapshot_and_exact_resource_identity() -> None:
     stamp = datetime(2026, 9, 26, tzinfo=UTC)
     evidence = ("observation-1", "dataset-1", "resource-1", "a" * 64, stamp)

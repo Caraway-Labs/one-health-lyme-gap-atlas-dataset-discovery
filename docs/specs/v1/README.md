@@ -55,6 +55,15 @@ and supersession still lack independently retained link signals, so semantic
 inference cannot invent those exact relationships. V111 and its runtime grant
 remain draft pending ADR 0041 owner/security approval and protected migration.
 
+The read-only candidate port also has one-result methods for prior governed
+assessment status and exact catalog-observation artifact metadata through the
+draft data-owned V112 views. Assessment status is context only: it cannot be
+mapped to recommendation priority or source approval. Artifact metadata omits
+object URI and bytes and cannot be used to fetch a private artifact. These
+methods are available for bounded operator/evaluation context; the v1 graph
+does not add model calls or authority based on them. V112 and SELECT grants
+remain behind the same ADR 0041 and protected-migration gate.
+
 ## Rights and human boundary
 
 Human review occurs outside the graph using an individual Snowflake-authenticated session. The CLI never accepts a self-asserted reviewer name. A caller-rights procedure would require direct reviewer table DML. Subject to owner/security approval in data ADR 0041, use an owner-rights procedure owned by a dedicated non-login write-owner role with narrowly granted `READ SESSION` on account. It derives the caller through `SYS_CONTEXT('SNOWFLAKE$SESSION', 'PRINCIPAL_NAME')` and `PRINCIPAL_TYPE`, verifies human reviewer role/allowlist, and stores the exact principal, decision, rationale, version and time in append-only `REVIEW_EVENTS`. The runtime identity cannot invoke it. If `READ SESSION` is not approved or the procedure cannot prove caller identity in DEV, review writes remain disabled pending a different reviewed boundary.

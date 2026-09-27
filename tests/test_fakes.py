@@ -6,7 +6,9 @@ from lyme_gap_atlas_dataset_discovery.adapters.fake import (
 )
 from lyme_gap_atlas_dataset_discovery.domain.analysis import AvailableObservation
 from lyme_gap_atlas_dataset_discovery.domain.models import (
+    CandidateArtifactMetadata,
     CandidateIdentity,
+    CandidatePriorAssessment,
     CandidateSummary,
     EvidenceRef,
     RunCreateMetadata,
@@ -109,3 +111,40 @@ def test_fake_observations_are_bounded_and_declared() -> None:
     reader.observations["resource"] = (AvailableObservation(reference=unknown, field_values={}),)
     with pytest.raises(ValueError, match="not declared"):
         reader.get_observations("resource", limit=1)
+
+
+def test_fake_prior_assessment_and_artifact_metadata_are_identity_bound() -> None:
+    identity = CandidateIdentity(
+        resource_key="resource", catalog_dataset_id="dataset", catalog_resource_id="resource"
+    )
+    ref = EvidenceRef(
+        observation_id="observation-1",
+        catalog_dataset_id="dataset",
+        catalog_resource_id="resource",
+        observed_at="2026-09-26T00:00:00Z",
+    )
+    assessment = CandidatePriorAssessment(
+        identity=identity,
+        assessment_id="assessment-1",
+        assessment_status="PENDING_REVIEW",
+        assessed_at="2026-09-25T00:00:00Z",
+    )
+    artifact = CandidateArtifactMetadata(
+        identity=identity,
+        observation_id="observation-1",
+        artifact_id="artifact-1",
+        artifact_type="CATALOG_METADATA",
+        byte_count=128,
+        sha256="a" * 64,
+        retention_class="PRIVATE",
+        created_at="2026-09-26T00:00:00Z",
+    )
+    reader = FakeCandidateReader(
+        candidates=(CandidateSummary(identity=identity, evidence_refs=(ref,)),),
+        prior_assessments={"resource": assessment},
+        artifact_metadata={("resource", "observation-1"): artifact},
+    )
+    assert reader.get_prior_assessment("resource") == assessment
+    assert reader.get_artifact_metadata("resource", "observation-1") == artifact
+    with pytest.raises(ValueError, match="not declared"):
+        reader.get_artifact_metadata("resource", "other")
