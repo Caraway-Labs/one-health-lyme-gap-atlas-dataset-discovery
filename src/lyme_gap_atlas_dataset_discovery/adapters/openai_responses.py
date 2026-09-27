@@ -123,11 +123,14 @@ class OpenAIResponsesPlanner(BoundedModelPlanner):
         if schema is None:
             raise ValueError("unreviewed semantic task")
         assert prefix is not None
-        if min(
-            allowance.max_input_tokens,
-            allowance.max_output_tokens,
-            allowance.max_estimated_spend_cents,
-        ) <= 0:
+        if (
+            min(
+                allowance.max_input_tokens,
+                allowance.max_output_tokens,
+                allowance.max_estimated_spend_cents,
+            )
+            <= 0
+        ):
             raise BudgetExceeded("model budget does not allow another call")
         user = {"task": task, "output_shape": shape, "evidence_data": content}
         input_text = json.dumps(user, ensure_ascii=False, separators=(",", ":"))
@@ -214,8 +217,13 @@ class OpenAIResponsesPlanner(BoundedModelPlanner):
         span = trace.get_current_span()
         if span.is_recording():
             for name in (
-                "input_tokens", "output_tokens", "cached_input_tokens",
-                "reasoning_tokens", "latency_ms", "retry_count", "estimated_spend_cents",
+                "input_tokens",
+                "output_tokens",
+                "cached_input_tokens",
+                "reasoning_tokens",
+                "latency_ms",
+                "retry_count",
+                "estimated_spend_cents",
             ):
                 span.set_attribute(f"atlas.discovery.model.{name}", getattr(measured, name))
             span.set_attribute("atlas.discovery.model.prompt_version", OPENAI_PROMPT_VERSION)

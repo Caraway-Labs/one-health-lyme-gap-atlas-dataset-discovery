@@ -150,9 +150,7 @@ def render_spec(template: dict[str, Any], sha: str, environment: dict[str, str])
         value = environment.get(name)
         if hosts.count(marker) != 1 or not value or not HOST.fullmatch(value):
             raise PreflightError(f"required egress host unavailable: {name}")
-        if name == "SNOWFLAKE_EGRESS_HOST" and not value.endswith(
-            ".snowflakecomputing.com"
-        ):
+        if name == "SNOWFLAKE_EGRESS_HOST" and not value.endswith(".snowflakecomputing.com"):
             raise PreflightError("Snowflake egress host is not an account endpoint")
         hosts[hosts.index(marker)] = value
     if any(not HOST.fullmatch(host) for host in hosts) or len(hosts) != len(set(hosts)):
@@ -203,7 +201,12 @@ def preflight(sha: str, account_uuid: str, template_path: Path) -> dict[str, str
         spec.write_text(json.dumps(rendered), encoding="utf-8")
         _command("doctl", "harness-runtime", "validate", "--spec", str(spec))
         _command(
-            "doctl", "harness-runtime", "create", "--spec", str(spec), "--dry-run",
+            "doctl",
+            "harness-runtime",
+            "create",
+            "--spec",
+            str(spec),
+            "--dry-run",
             *secret_flags,
         )
     return {

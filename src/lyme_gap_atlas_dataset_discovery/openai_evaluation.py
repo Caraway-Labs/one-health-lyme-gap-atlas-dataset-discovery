@@ -36,7 +36,9 @@ def evaluate(corpus: Path, key_file: Path) -> dict[str, object]:
     table = LunaPriceTable.standard_v1()
     policy = ModelPolicy.luna_low_v1()
     planner = OpenAIResponsesPlanner(
-        endpoint="https://api.openai.com/v1", model_id="gpt-6-luna", api_key=key,
+        endpoint="https://api.openai.com/v1",
+        model_id="gpt-6-luna",
+        api_key=key,
         price=ReviewedModelPrice(table.version, "gpt-6-luna", Decimal("0.10"), Decimal("0.50")),
     )
     document = json.loads(corpus.read_text(encoding="utf-8"))
@@ -54,10 +56,10 @@ def evaluate(corpus: Path, key_file: Path) -> dict[str, object]:
         record: dict[str, object] = {"case_id": case_id}
         try:
             answer = planner.classify(
-                candidate, observations,
+                candidate,
+                observations,
                 allowance=ModelAllowance(
-                    max_input_tokens=20000, max_output_tokens=1024,
-                    max_estimated_spend_cents=10
+                    max_input_tokens=20000, max_output_tokens=1024, max_estimated_spend_cents=10
                 ),
             )
             analysis, dimensions = answer.value
@@ -87,8 +89,8 @@ def evaluate(corpus: Path, key_file: Path) -> dict[str, object]:
                         try:
                             ranked = rank_candidate(rank_input)
                             record["bucket"] = ranked.bucket.value
-                            record["bucket_matches_corpus"] = (
-                                ranked.bucket.value == item.get("expected_bucket")
+                            record["bucket_matches_corpus"] = ranked.bucket.value == item.get(
+                                "expected_bucket"
                             )
                         except ValueError:
                             record["hard_gate"] = "REJECTED_RANKING_EVIDENCE"
@@ -119,9 +121,7 @@ def evaluate(corpus: Path, key_file: Path) -> dict[str, object]:
         "output_tokens": sum(_metric(item, "output_tokens") for item in results),
         "cached_input_tokens": sum(_metric(item, "cached_input_tokens") for item in results),
         "reasoning_tokens": sum(_metric(item, "reasoning_tokens") for item in results),
-        "conservative_cost_cents": sum(
-            _metric(item, "estimated_spend_cents") for item in results
-        ),
+        "conservative_cost_cents": sum(_metric(item, "estimated_spend_cents") for item in results),
         "mean_latency_ms": round(mean(latencies)) if latencies else None,
         "median_latency_ms": round(median(latencies)) if latencies else None,
         "cases": results,
