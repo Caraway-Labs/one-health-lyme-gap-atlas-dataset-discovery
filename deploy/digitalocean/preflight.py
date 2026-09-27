@@ -44,6 +44,7 @@ SECRET_VARS = {
     "ATLAS_DD_DEV_OPENAI_API_KEY",
     "SNOWFLAKE_PAT",
 }
+SECRET_SENTINEL = "REQUIRED_INJECTION_VIA_SECRET_FLAG"
 EGRESS_VARS = {"SNOWFLAKE_EGRESS_HOST"}
 HOST = re.compile(r"^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -160,6 +161,11 @@ def render_spec(template: dict[str, Any], sha: str, environment: dict[str, str])
             raise PreflightError(f"managed secret reference unavailable: {name}")
     rendered = copy.deepcopy(template)
     rendered["env"]["FRAMEWORK_REPO_SHA"] = sha
+    # doctl expands ${VAR} before --secret flags are applied. A noncredential
+    # sentinel lets validate inspect the spec; create --dry-run and the real
+    # session must override both slots with file-backed --secret flags.
+    for name in SECRET_VARS:
+        rendered["secrets"][name] = SECRET_SENTINEL
     for name in NONSECRET_VARS:
         if values.get(name) != "${" + name + "}" or not environment.get(name):
             raise PreflightError(f"nonsecret environment field unavailable: {name}")

@@ -111,7 +111,10 @@ uv run python deploy/digitalocean/preflight.py --sha <evaluated-40-char-sha> --a
 
 The script passes those paths to `doctl create --dry-run` as `--secret NAME=@path`;
 it never places secret values in ordinary environment variables or the rendered
-spec. For a real session use the same file-backed `--secret` arguments.
+spec. The rendered spec uses a noncredential sentinel for each secret slot
+because `doctl validate` resolves `${VAR}` before applying `--secret` flags;
+the dry run and real session must override both slots with file-backed flags.
+For a real session use the same file-backed `--secret` arguments.
 The script checks the local CLI, account, compiled graph node set, clean exact
 checkout, remote private commit, secret placement, and DigitalOcean validate
 and dry-run commands. It prints only version, account UUID, SHA and a bounded

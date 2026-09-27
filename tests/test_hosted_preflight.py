@@ -29,6 +29,9 @@ def test_spec_renders_exact_sha_without_copying_secrets_into_env() -> None:
     assert rendered["env"]["FRAMEWORK_REPO_SHA"] == "a" * 40
     assert rendered["env"]["ATLAS_DISCOVERY_PROFILE"] == "HOSTED_MANUAL"
     assert rendered["secrets"]["GITHUB_TOKEN"] == "oauth/github"
+    assert all(
+        rendered["secrets"][name] == preflight.SECRET_SENTINEL for name in preflight.SECRET_VARS
+    )
     assert "test-secret" not in json.dumps(rendered)
     assert "api.openai.com" in rendered["egress"]["allow_hosts"]
     assert all("TOKEN" not in name and "PAT" not in name for name in rendered["env"])
