@@ -23,7 +23,7 @@ uv run pytest -q
 uv build
 ```
 
-The reviewed [v1 implementation contract](docs/specs/v1/README.md) covers state, evidence, ranking, review, persistence, authority, evaluation, and rollout. Data #449 owns the Snowflake objects and role ADR; data #450 owns governed onboarding. Root `langgraph.json` exports the compiled graph. `deploy/digitalocean/` is the future secret-free hosted spec home.
+The reviewed [v1 implementation contract](docs/specs/v1/README.md) covers state, evidence, ranking, review, persistence, authority, evaluation, and rollout. Data #449 owns the Snowflake objects and role ADR; data #450 owns governed onboarding. Root `langgraph.json` exports the compiled graph. `deploy/digitalocean/` contains the secret-free hosted specs and preflight tools.
 
 The draft [human review CLI](docs/operations/review-cli.md) runs separately from the inference graph and consumes the data-owned V109 review boundary. It is not enabled for live use until its role, principal-attribution and protected migration gates pass.
 
@@ -43,10 +43,11 @@ evaluation shows conservative over-abstention; all persisted recommendations
 remain evidence-validated and require human review before governed handoff.
 The first real DEV manual run persisted one insufficient-evidence candidate
 outcome and finalized at its one-candidate budget. Scheduling remains disabled.
-The upgraded local `doctl` accepts the manifest; the older binary still
-shadows it on `PATH`. Hosted manual launch awaits the DigitalOcean prepayment
-gate, team private GitHub connection, and exact-SHA session proof. Local
-validation is not a hosted run.
+DigitalOcean HOSTED_MANUAL and three-candidate SHADOW runs have executed against
+DEV Snowflake at exact recorded SHAs. The accepted hosted sessions are paused
+and scheduling remains disabled. The SHADOW operating spec routes redacted
+OpenTelemetry spans to Arize AX SaaS through OTLP/HTTP; remote receipt still
+requires direct inspection of a hosted trace in the Arize AX project.
 
 ## Backlog migration
 

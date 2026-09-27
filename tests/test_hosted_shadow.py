@@ -55,5 +55,25 @@ def test_shadow_spec_is_separate_and_manual_preflight_rejects_it() -> None:
     assert rendered["env"]["ATLAS_DISCOVERY_PROFILE"] == "SHADOW"
     assert rendered["permissions"] == {"default": "ask"}
     assert rendered["secrets"]["GITHUB_TOKEN"] == "oauth/github"
+    assert set(rendered["secrets"]) == preflight.SHADOW_SECRET_VARS | {"GITHUB_TOKEN"}
+    assert all(
+        rendered["secrets"][name] == preflight.SECRET_SENTINEL
+        for name in preflight.SHADOW_SECRET_VARS
+    )
+    assert rendered["env"]["OTEL_EXPORTER_OTLP_ENDPOINT"] == preflight.ARIZE_OTLP_ENDPOINT
+    assert "otlp.arize.com" in rendered["egress"]["allow_hosts"]
     with pytest.raises(preflight.PreflightError, match="profile differs"):
         preflight.render_spec(template, "a" * 40, values)
+
+
+def test_shadow_rejects_missing_project_route_or_arize_egress() -> None:
+    template = json.loads(TEMPLATE.read_text(encoding="utf-8"))
+    values = {name: "reviewed-nonsecret" for name in preflight.NONSECRET_VARS}
+    values["SNOWFLAKE_EGRESS_HOST"] = "account.snowflakecomputing.com"
+    template["env"]["OTEL_RESOURCE_ATTRIBUTES"] = "service.name=wrong-project"
+    with pytest.raises(preflight.PreflightError, match="routing"):
+        preflight.render_spec(template, "a" * 40, values, profile="SHADOW")
+    template["env"]["OTEL_RESOURCE_ATTRIBUTES"] = preflight.SHADOW_RESOURCE_ATTRIBUTES
+    template["egress"]["allow_hosts"].remove("otlp.arize.com")
+    with pytest.raises(preflight.PreflightError, match="egress"):
+        preflight.render_spec(template, "a" * 40, values, profile="SHADOW")

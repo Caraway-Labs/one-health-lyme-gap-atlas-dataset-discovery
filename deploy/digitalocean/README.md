@@ -111,8 +111,20 @@ DEV service principal, managed-secret slots, and egress allowlist apply.
 Run `uv run python deploy/digitalocean/shadow_preflight.py --sha
 <evaluated-40-char-sha> --account-uuid <owner-approved-team-uuid>` from the
 exact clean checkout. Verify no triggers before and after the run. If the
-approved Phoenix/OTLP destination is unavailable, record the observability gap
+approved Arize AX OTLP destination is unavailable, record the observability gap
 without treating local spans as remote export proof.
+
+For Arize AX SaaS, the SHADOW template fixes the OTLP/HTTP endpoint to
+`https://otlp.arize.com/v1/traces`, routes spans with the
+`openinference.project.name=atlas-dataset-discovery` resource attribute, and
+allows only `otlp.arize.com` as the added telemetry egress host. Supply
+`ATLAS_DD_DEV_ARIZE_API_KEY` and `ATLAS_DD_DEV_ARIZE_SPACE_ID` from the
+owner-provided configuration as separate file-backed managed secrets. Invoke
+`python3 deploy/digitalocean/arize_shadow.py` inside the session; this
+deployment-only bootstrap composes the required OTLP headers without printing
+either value. The application graph and shared exporter remain vendor-neutral.
+The operator must inspect the received trace in the Arize AX project; a
+successful exporter call alone is insufficient.
 
 ## Read-only executable check
 

@@ -18,6 +18,8 @@
     "SNOWFLAKE_DATABASE": "${SNOWFLAKE_DATABASE}",
     "SNOWFLAKE_WAREHOUSE": "${SNOWFLAKE_WAREHOUSE}",
     "ATLAS_DISCOVERY_PROFILE": "SHADOW",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "https://otlp.arize.com/v1/traces",
+    "OTEL_RESOURCE_ATTRIBUTES": "openinference.project.name=atlas-dataset-discovery,atlas.environment=DEV,atlas.mode=SHADOW",
     "ATLAS_DISCOVERY_SNAPSHOT_ID": "${ATLAS_DISCOVERY_SNAPSHOT_ID}",
     "ATLAS_DISCOVERY_SEARCH_FINGERPRINT": "${ATLAS_DISCOVERY_SEARCH_FINGERPRINT}",
     "ATLAS_PRICE_TABLE_VERSION": "${ATLAS_PRICE_TABLE_VERSION}"
@@ -25,7 +27,9 @@
   "secrets": {
     "GITHUB_TOKEN": "oauth/github",
     "ATLAS_DD_DEV_OPENAI_API_KEY": "${ATLAS_DD_DEV_OPENAI_API_KEY}",
-    "ATLAS_DD_DEV_SNOWFLAKE_PAT": "${ATLAS_DD_DEV_SNOWFLAKE_PAT}"
+    "ATLAS_DD_DEV_SNOWFLAKE_PAT": "${ATLAS_DD_DEV_SNOWFLAKE_PAT}",
+    "ATLAS_DD_DEV_ARIZE_API_KEY": "${ATLAS_DD_DEV_ARIZE_API_KEY}",
+    "ATLAS_DD_DEV_ARIZE_SPACE_ID": "${ATLAS_DD_DEV_ARIZE_SPACE_ID}"
   },
   "egress": {
     "allow_hosts": [
@@ -34,7 +38,8 @@
       "api.github.com",
       "pypi.org",
       "files.pythonhosted.org",
-      "${SNOWFLAKE_EGRESS_HOST}"
+      "${SNOWFLAKE_EGRESS_HOST}",
+      "otlp.arize.com"
     ]
   },
   "permissions": {

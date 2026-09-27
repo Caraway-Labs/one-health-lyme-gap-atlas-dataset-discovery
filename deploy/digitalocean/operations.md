@@ -25,7 +25,7 @@ reviewer identity, and raw exception messages out of that record.
 | Discovery snapshot, profile, limits, price table/model identity | Validated run request and deployment record |
 | Session ID, status, exact boot SHA | `doctl harness-runtime show <session> -o json` and redacted startup evidence |
 | Run ID, final status, stop reason, counters, persistence receipts | Dataset Discovery `RUNS` and bounded receipt views |
-| OTEL trace ID and exporter receipt/trace reference | Approved Phoenix/OTLP inspection |
+| OTEL trace ID and exporter receipt/trace reference | Arize AX project inspection |
 | Permission denials, clone/model/Snowflake outcome | Redacted session diagnostics and DEV privilege tests |
 | Human adjudication and handoff, if performed | Exact review event and governed handoff receipt |
 
@@ -49,7 +49,7 @@ any resend. Do not manually insert migration or business receipts.
    `doctl harness-runtime logs <session>` only in the restricted operator
    environment; redact before attaching excerpts. Verify clone, exact boot
    SHA, model/Snowflake context, graph execution, budget counters, run
-   finalization, and Phoenix trace. Inspect the persisted run and operation
+   finalization, and Arize AX trace. Inspect the persisted run and operation
    receipts using the approved least-privilege DEV read path.
 4. Treat an unavailable exporter or missing trace as missing observability
    proof. A small SHADOW runtime proof may proceed with that gap recorded;

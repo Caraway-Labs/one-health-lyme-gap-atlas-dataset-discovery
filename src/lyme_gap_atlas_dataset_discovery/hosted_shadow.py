@@ -5,11 +5,16 @@ import json
 import re
 from typing import Any
 
+from opentelemetry import trace
+
 from lyme_gap_atlas_dataset_discovery.graph.budgets import PROFILE_DEFAULTS, RunProfile
 from lyme_gap_atlas_dataset_discovery.graph.hosted import HostedConfig, build_hosted_graph
 from lyme_gap_atlas_dataset_discovery.graph.state import DatasetDiscoveryState
 from lyme_gap_atlas_dataset_discovery.model_policy import ModelPolicy
-from lyme_gap_atlas_dataset_discovery.observability import flush_dataset_discovery_tracing
+from lyme_gap_atlas_dataset_discovery.observability import (
+    SERVICE_NAME,
+    flush_dataset_discovery_tracing,
+)
 
 _RUN_ID = re.compile(r"^dd-shadow-[0-9a-f]{32}$")
 _TRACE_ID = re.compile(r"^[0-9a-f]{32}$")
@@ -82,9 +87,29 @@ def main(argv: list[str] | None = None) -> int:
             trace_id=args.trace_id,
             host_session_id=args.host_session_id,
         )
-        result: dict[str, Any] = build_hosted_graph(config).invoke(
-            state, config={"recursion_limit": 180}
-        )
+        graph = build_hosted_graph(config)
+        tracer = trace.get_tracer(SERVICE_NAME)
+        with tracer.start_as_current_span(
+            "dataset_discovery.run", record_exception=False, set_status_on_exception=False
+        ) as span:
+            span.set_attribute("atlas.discovery.requested_run_id", args.run_id)
+            span.set_attribute("atlas.discovery.host_session_id", args.host_session_id)
+            span.set_attribute("atlas.discovery.code_sha", config.code_sha)
+            span.set_attribute("atlas.discovery.model_id", config.model_id)
+            span.set_attribute("atlas.discovery.model_fingerprint", config.model_fingerprint)
+            span.set_attribute("atlas.discovery.profile", RunProfile.SHADOW.value)
+            span.set_attribute("atlas.discovery.environment", "DEV")
+            actual_trace_id = f"{span.get_span_context().trace_id:032x}"
+            result: dict[str, Any] = graph.invoke(state, config={"recursion_limit": 180})
+            usage = result["usage"]
+            for field in ("model_calls", "tool_calls", "input_tokens", "output_tokens"):
+                span.set_attribute(f"atlas.discovery.{field}", getattr(usage, field))
+            span.set_attribute("atlas.discovery.elapsed_seconds", usage.elapsed_seconds)
+            span.set_attribute("atlas.discovery.processed_count", result.get("processed_count", 0))
+            for field in ("final_status", "stop_reason"):
+                value = result.get(field)
+                if isinstance(value, str):
+                    span.set_attribute(f"atlas.discovery.{field}", value)
         usage = result["usage"]
         print(
             json.dumps(
@@ -92,6 +117,7 @@ def main(argv: list[str] | None = None) -> int:
                     "run_id": result.get("run_id", args.run_id),
                     "host_session_id": args.host_session_id,
                     "trace_id": args.trace_id,
+                    "otel_trace_id": actual_trace_id,
                     "code_sha": config.code_sha,
                     "model_fingerprint": config.model_fingerprint,
                     "final_status": result.get("final_status"),
