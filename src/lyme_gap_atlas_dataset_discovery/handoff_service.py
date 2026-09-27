@@ -1,6 +1,7 @@
 """Human-initiated governed intake, deliberately outside LangGraph."""
 
 from lyme_gap_atlas_dataset_discovery.domain.handoff import HandoffReceipt, HandoffStatus
+from lyme_gap_atlas_dataset_discovery.observability import traced_operation
 from lyme_gap_atlas_dataset_discovery.ports.contracts import HandoffClient
 
 
@@ -10,7 +11,9 @@ class HumanHandoffService:
         self._client = client
 
     def submit(self, recommendation_version_id: str, review_event_id: str) -> HandoffReceipt:
-        return self._client.submit(recommendation_version_id, review_event_id)
+        with traced_operation("handoff", "submit", "request", 1):
+            return self._client.submit(recommendation_version_id, review_event_id)
 
     def status(self, recommendation_version_id: str) -> HandoffStatus | None:
-        return self._client.get_status(recommendation_version_id)
+        with traced_operation("handoff", "status", "request", 1):
+            return self._client.get_status(recommendation_version_id)

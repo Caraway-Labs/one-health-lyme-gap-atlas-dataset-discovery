@@ -66,3 +66,7 @@ disabled for these and node spans so catalog text or connector messages cannot
 enter exported traces. Hosted acceptance must inspect actual traces and
 correlate them with run/session IDs; fixture spans alone do not prove Phoenix
 delivery.
+
+The separate human review and governed handoff services emit fixed-name request
+spans. They contain outcome and exception type only; reviewer identity,
+rationale, recommendation content, and handoff payload stay out of telemetry.

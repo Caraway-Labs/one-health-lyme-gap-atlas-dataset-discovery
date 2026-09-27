@@ -100,6 +100,31 @@ def test_unreviewed_operation_name_is_rejected_before_span(monkeypatch: Any) -> 
     assert tracer.name is None
 
 
+@pytest.mark.parametrize(
+    "kind,operation",
+    [("review", "decide"), ("handoff", "submit")],
+)
+def test_human_operation_spans_exclude_submitted_content(
+    monkeypatch: Any, kind: str, operation: str
+) -> None:
+    span = CaptureSpan()
+    tracer = CaptureTracer(span)
+    monkeypatch.setattr(
+        "lyme_gap_atlas_dataset_discovery.observability.trace.get_tracer",
+        lambda _: tracer,
+    )
+    with traced_operation(kind, operation, "request", 1):
+        pass
+    assert tracer.name == f"dataset_discovery.{kind}.{operation}"
+    assert tracer.options == {"record_exception": False, "set_status_on_exception": False}
+    assert span.attributes == {
+        "atlas.discovery.operation_kind": kind,
+        "atlas.discovery.operation_phase": "request",
+        "atlas.discovery.attempt": 1,
+        "atlas.discovery.outcome": "OK",
+    }
+
+
 def test_node_failure_exports_error_type_without_message(monkeypatch: Any) -> None:
     span = CaptureSpan()
     tracer = CaptureTracer(span)

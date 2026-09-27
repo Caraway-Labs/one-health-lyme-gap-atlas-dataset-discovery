@@ -8,6 +8,7 @@ from lyme_gap_atlas_dataset_discovery.domain.review import (
     ReviewReceipt,
     make_review_command,
 )
+from lyme_gap_atlas_dataset_discovery.observability import traced_operation
 from lyme_gap_atlas_dataset_discovery.ports.contracts import HumanReviewRepository
 
 
@@ -17,17 +18,20 @@ class HumanReviewService:
         self._repository = repository
 
     def list_pending(self, run_id: str, *, after_rank: int = 0, limit: int = 25) -> PendingPage:
-        return self._repository.list_pending(run_id, after_rank=after_rank, limit=limit)
+        with traced_operation("review", "list_pending", "request", 1):
+            return self._repository.list_pending(run_id, after_rank=after_rank, limit=limit)
 
     def show(self, recommendation_version_id: str) -> ReviewDetail:
-        return self._repository.get_detail(recommendation_version_id)
+        with traced_operation("review", "show", "request", 1):
+            return self._repository.get_detail(recommendation_version_id)
 
     def history(
         self, recommendation_version_id: str, *, after_sequence: int = 0, limit: int = 50
     ) -> ReviewHistoryPage:
-        return self._repository.get_history(
-            recommendation_version_id, after_sequence=after_sequence, limit=limit
-        )
+        with traced_operation("review", "history", "request", 1):
+            return self._repository.get_history(
+                recommendation_version_id, after_sequence=after_sequence, limit=limit
+            )
 
     def decide(
         self,
@@ -47,4 +51,5 @@ class HumanReviewService:
             conditions=conditions,
             correction_of_event_id=correction_of_event_id,
         )
-        return self._repository.append_event(command)
+        with traced_operation("review", "decide", "request", 1):
+            return self._repository.append_event(command)

@@ -36,6 +36,8 @@ _OPERATION_NAMES = {
     "persistence": frozenset(
         {"run_create", "recommendation_commit", "candidate_outcome", "run_finalize"}
     ),
+    "review": frozenset({"list_pending", "show", "history", "decide"}),
+    "handoff": frozenset({"submit", "status"}),
 }
 
 
@@ -49,7 +51,14 @@ def traced_operation(kind: str, operation: str, phase: str, attempt: int) -> Ite
     """Trace only fixed operation names and counters, never arguments or exception text."""
     if operation not in _OPERATION_NAMES.get(kind, ()):
         raise ValueError("unreviewed telemetry operation")
-    if phase not in ({"send", "lookup"} if kind == "persistence" else {"attempt"}):
+    allowed_phases = (
+        {"send", "lookup"}
+        if kind == "persistence"
+        else {"request"}
+        if kind in {"review", "handoff"}
+        else {"attempt"}
+    )
+    if phase not in allowed_phases:
         raise ValueError("unreviewed telemetry phase")
     if attempt < 1:
         raise ValueError("telemetry attempt must be positive")
