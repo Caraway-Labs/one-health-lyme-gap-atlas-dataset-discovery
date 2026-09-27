@@ -45,9 +45,15 @@ Eligibility requires canonical identity, one stable evidence ref, and evidence s
 The sequential graph checks the bounded governed-status view before loading
 candidate observations or calling the model. An active governed version for the
 same canonical resource produces an `ALREADY_KNOWN` candidate outcome. An
-unrecognized status fails closed. Mirror, revision, supersession, and alternate
-distribution still require independently retained link signals from the data
-contract; semantic inference is not allowed to invent those exact relationships.
+unrecognized status fails closed. The data-owned V111 identity-link view then
+supports exact canonical key/URL duplicate detection and same-catalog-dataset
+alternate distribution, bounded to two matches for the pinned snapshot. Two
+matches produce `AMBIGUOUS_RELATIONSHIP`; neither the model nor the application
+chooses a convenient target. A single alternate distribution bypasses model
+relationship assertion and remains capped at LOW priority. Mirror, revision,
+and supersession still lack independently retained link signals, so semantic
+inference cannot invent those exact relationships. V111 and its runtime grant
+remain draft pending ADR 0041 owner/security approval and protected migration.
 
 ## Rights and human boundary
 

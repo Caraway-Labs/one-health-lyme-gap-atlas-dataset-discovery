@@ -24,11 +24,13 @@ need independent proof before hosted acceptance.
 
 The `corpora/v1/graph_trajectories.json` corpus pins the exact sequential
 LangGraph node path, terminal status and stop reason, budgeted model/tool
-calls, candidate outcomes, and durable run/recommendation receipts. Its 13
+calls, candidate outcomes, and durable run/recommendation receipts. Its 16
 cases cover no-candidate, valid, insufficient-evidence, already-governed,
 invalid/unmetered model, exhausted batch/evidence/model outages, transient
 read/model retries, candidate budget, cancellation, and lost commit
-acknowledgments for all four business write families. Empty, successful, and
+acknowledgments for all four business write families. It also checks an exact
+identity link before the model, an alternate distribution's LOW priority cap,
+and an ambiguous link that abstains without model guessing. Empty, successful, and
 acknowledgment-loss runs are replayed with the same logical operation keys to
 verify one durable result:
 

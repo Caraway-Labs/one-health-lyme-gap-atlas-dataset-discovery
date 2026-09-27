@@ -478,12 +478,40 @@ def build_graph(deps: GraphDependencies) -> Any:
         candidate = state["current_candidate"]
         if candidate is None:
             raise ValueError("no candidate selected")
-        allowance = _model_allowance(state["usage"], state["limits"])
+        links, usage = _bounded_call(
+            call=lambda: deps.reader.get_identity_links(_current(state)),
+            usage=state["usage"],
+            limits=state["limits"],
+            dimension="tool_calls",
+            retries=state["limits"].retries_per_operation,
+            sleep=deps.sleep,
+        )
+        if len(links) > 1:
+            return {"usage": usage, "candidate_outcome_reason": "AMBIGUOUS_RELATIONSHIP"}
+        if links:
+            link = links[0]
+            if link.candidate != candidate.identity:
+                raise PolicyViolation("identity link belongs to another candidate")
+            relationship = RelationshipResult(
+                relationship=link.relationship,
+                basis=link.basis,
+                supporting_observation_ids=(),
+            )
+            deterministic_result: DatasetDiscoveryState = {
+                "usage": usage,
+                "current_relationship": relationship,
+            }
+            if link.relationship == Relationship.EXACT_DUPLICATE:
+                deterministic_result["candidate_outcome_reason"] = (
+                    Relationship.EXACT_DUPLICATE.value
+                )
+            return deterministic_result
+        allowance = _model_allowance(usage, state["limits"])
         response, usage = _bounded_call(
             call=lambda: planner_for(state).relationship(
                 candidate, state["current_observations"], allowance=allowance
             ),
-            usage=state["usage"],
+            usage=usage,
             limits=state["limits"],
             dimension="model_calls",
             retries=state["limits"].retries_per_operation,

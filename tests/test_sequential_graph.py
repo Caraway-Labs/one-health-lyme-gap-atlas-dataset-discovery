@@ -33,7 +33,7 @@ from lyme_gap_atlas_dataset_discovery.domain.ranking import (
     RankingDimensions,
     Relationship,
 )
-from lyme_gap_atlas_dataset_discovery.domain.relationships import RelationshipResult
+from lyme_gap_atlas_dataset_discovery.domain.relationships import IdentityLink, RelationshipResult
 from lyme_gap_atlas_dataset_discovery.graph.budgets import PROFILE_DEFAULTS, RunProfile
 from lyme_gap_atlas_dataset_discovery.graph.planner import (
     FakeCandidatePlanner,
@@ -143,6 +143,98 @@ def fixture_context() -> FakeDiscoveryContextReader:
             )
         }
     )
+
+
+def identity_link(
+    candidate: CandidateSummary,
+    *,
+    linked_id: str = "related",
+    relationship: Relationship = Relationship.EXACT_DUPLICATE,
+) -> IdentityLink:
+    return IdentityLink(
+        candidate=candidate.identity,
+        linked_resource_key=linked_id,
+        linked_catalog_dataset_id=candidate.identity.catalog_dataset_id,
+        linked_catalog_resource_id=f"resource-{linked_id}",
+        relationship=relationship,
+        basis=(
+            "SAME_CATALOG_DATASET"
+            if relationship == Relationship.ALTERNATE_DISTRIBUTION
+            else "EXACT_CANONICAL_URL"
+        ),
+    )
+
+
+def test_exact_identity_link_records_outcome_before_model_and_continues() -> None:
+    duplicate, duplicate_observations, _ = fixture("duplicate")
+    good, good_observations, good_plan = fixture("good")
+    reader = FakeCandidateReader(
+        candidates=(duplicate, good),
+        observations={"duplicate": duplicate_observations, "good": good_observations},
+        identity_links={"duplicate": (identity_link(duplicate),)},
+    )
+    repository = FakeRecommendationRepository()
+    graph = build_graph(
+        GraphDependencies(
+            reader=reader,
+            repository=repository,
+            planner=FakeCandidatePlanner({"good": good_plan}),
+        )
+    )
+    result = graph.invoke(input_state(), config={"recursion_limit": 100})
+    assert result["final_status"] == "SUCCEEDED_WITH_RECOMMENDATIONS"
+    assert result["processed_candidate_outcomes"] == ("EXACT_DUPLICATE",)
+    assert result["usage"].model_calls == 4
+    assert len(repository.recommendations) == 1
+
+
+def test_alternate_distribution_is_capped_low_without_model_relationship() -> None:
+    candidate, observations, plan = fixture("alternate")
+    reader = FakeCandidateReader(
+        candidates=(candidate,),
+        observations={"alternate": observations},
+        identity_links={
+            "alternate": (
+                identity_link(candidate, relationship=Relationship.ALTERNATE_DISTRIBUTION),
+            )
+        },
+    )
+    repository = FakeRecommendationRepository()
+    graph = build_graph(
+        GraphDependencies(
+            reader=reader,
+            repository=repository,
+            planner=FakeCandidatePlanner({"alternate": plan}),
+        )
+    )
+    result = graph.invoke(input_state(), config={"recursion_limit": 100})
+    bundle = next(iter(repository.recommendation_bundles.values()))
+    assert result["final_status"] == "SUCCEEDED_WITH_RECOMMENDATIONS"
+    assert result["usage"].model_calls == 3
+    assert bundle.relationship.relationship == Relationship.ALTERNATE_DISTRIBUTION
+    assert bundle.priority.bucket.value == "LOW"
+
+
+def test_multiple_identity_links_abstain_without_model_guess() -> None:
+    candidate, observations, _ = fixture("ambiguous")
+    reader = FakeCandidateReader(
+        candidates=(candidate,),
+        observations={"ambiguous": observations},
+        identity_links={
+            "ambiguous": (
+                identity_link(candidate, linked_id="a"),
+                identity_link(candidate, linked_id="b"),
+            )
+        },
+    )
+    repository = FakeRecommendationRepository()
+    graph = build_graph(
+        GraphDependencies(reader=reader, repository=repository, planner=FakeCandidatePlanner({}))
+    )
+    result = graph.invoke(input_state(), config={"recursion_limit": 100})
+    assert result["processed_candidate_outcomes"] == ("AMBIGUOUS_RELATIONSHIP",)
+    assert result["usage"].model_calls == 0
+    assert not repository.recommendations
 
 
 def test_valid_candidate_persists_and_finalizes() -> None:
@@ -540,7 +632,7 @@ def test_transient_reader_and_model_errors_retry_with_attempts_charged() -> None
     assert result["final_status"] == "SUCCEEDED_WITH_RECOMMENDATIONS"
     assert reader.attempts == 2
     assert planner.attempts == 2
-    assert result["usage"].tool_calls == 4  # page, governed status, two evidence attempts
+    assert result["usage"].tool_calls == 5  # page, status, two evidence attempts, identity links
     assert result["usage"].model_calls == 5  # relationship twice; remaining nodes once
 
 

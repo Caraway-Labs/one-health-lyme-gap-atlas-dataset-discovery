@@ -38,7 +38,7 @@ from lyme_gap_atlas_dataset_discovery.domain.ranking import (
     RankingDimensions,
     Relationship,
 )
-from lyme_gap_atlas_dataset_discovery.domain.relationships import RelationshipResult
+from lyme_gap_atlas_dataset_discovery.domain.relationships import IdentityLink, RelationshipResult
 from lyme_gap_atlas_dataset_discovery.graph.budgets import PROFILE_DEFAULTS, RunProfile
 from lyme_gap_atlas_dataset_discovery.graph.planner import (
     FakeCandidatePlanner,
@@ -57,6 +57,7 @@ class CandidateCase(StrictModel):
     evidence: bool = True
     governed_status: Literal["UNKNOWN", "ALREADY_GOVERNED"] = "UNKNOWN"
     planner: Literal["NORMAL", "INVALID", "UNMETERED"] = "NORMAL"
+    identity_link: Literal["NONE", "EXACT", "ALTERNATE", "AMBIGUOUS"] = "NONE"
 
 
 class TrajectoryCase(StrictModel):
@@ -77,6 +78,8 @@ class TrajectoryCase(StrictModel):
     retries: int = Field(default=0, ge=0, le=2)
     cancelled: bool = False
     stop_reason: str | None = None
+    expected_relationship: Relationship | None = None
+    expected_priority_bucket: str | None = None
 
 
 class TrajectoryCorpus(StrictModel):
@@ -236,6 +239,31 @@ def _candidate(
     return summary, observations, plan
 
 
+def _identity_links(item: CandidateCase, identity: CandidateIdentity) -> tuple[IdentityLink, ...]:
+    if item.identity_link == "NONE":
+        return ()
+    count = 2 if item.identity_link == "AMBIGUOUS" else 1
+    return tuple(
+        IdentityLink(
+            candidate=identity,
+            linked_resource_key=f"linked-{index}",
+            linked_catalog_dataset_id=identity.catalog_dataset_id,
+            linked_catalog_resource_id=f"linked-resource-{index}",
+            relationship=(
+                Relationship.ALTERNATE_DISTRIBUTION
+                if item.identity_link == "ALTERNATE"
+                else Relationship.EXACT_DUPLICATE
+            ),
+            basis=(
+                "SAME_CATALOG_DATASET"
+                if item.identity_link == "ALTERNATE"
+                else "EXACT_CANONICAL_URL"
+            ),
+        )
+        for index in range(count)
+    )
+
+
 def evaluate_case(case: TrajectoryCase) -> dict[str, object]:
     if len({item.id for item in case.candidates}) != len(case.candidates):
         raise ValueError("scenario candidate IDs must be unique")
@@ -244,6 +272,10 @@ def evaluate_case(case: TrajectoryCase) -> dict[str, object]:
         candidates=tuple(prepared[item.id][0] for item in case.candidates),
         observations={key: value[1] for key, value in prepared.items()},
         governed_statuses={item.id: item.governed_status for item in case.candidates},
+        identity_links={
+            item.id: _identity_links(item, prepared[item.id][0].identity)
+            for item in case.candidates
+        },
         fault=case.reader_fault,
     )
     repository = ScenarioRepository(lose_ack_for=case.lost_ack)
@@ -324,6 +356,21 @@ def evaluate_case(case: TrajectoryCase) -> dict[str, object]:
         "stop_reason": (state.get("stop_reason"), case.stop_reason),
         "lost_ack_reconciled": (tuple(sorted(repository.lost)), tuple(sorted(case.lost_ack))),
     }
+    if case.expected_relationship is not None or case.expected_priority_bucket is not None:
+        bundles = tuple(repository.recommendation_bundles.values())
+        if len(bundles) != 1:
+            errors.append("expected_one_ranked_relationship")
+        else:
+            if (
+                case.expected_relationship is not None
+                and bundles[0].relationship.relationship != case.expected_relationship
+            ):
+                errors.append("relationship")
+            if (
+                case.expected_priority_bucket is not None
+                and bundles[0].priority.bucket.value != case.expected_priority_bucket
+            ):
+                errors.append("priority_bucket")
     errors.extend(key for key, (actual, expected) in checks.items() if actual != expected)
     if forbidden.intersection(nodes):
         errors.append("forbidden_authority_node")

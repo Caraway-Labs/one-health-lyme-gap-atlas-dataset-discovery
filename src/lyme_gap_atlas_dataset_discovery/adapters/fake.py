@@ -16,6 +16,7 @@ from lyme_gap_atlas_dataset_discovery.domain.models import (
     RunReceipt,
 )
 from lyme_gap_atlas_dataset_discovery.domain.persistence import RecommendationWrite
+from lyme_gap_atlas_dataset_discovery.domain.relationships import IdentityLink
 
 
 @dataclass
@@ -24,6 +25,7 @@ class FakeCandidateReader:
     observations: dict[str, tuple[AvailableObservation, ...]] = field(default_factory=dict)
     discovery_run_id: str = "fixture-snapshot"
     governed_statuses: dict[str, str] = field(default_factory=dict)
+    identity_links: dict[str, tuple[IdentityLink, ...]] = field(default_factory=dict)
 
     def list_batch(self, *, cursor: str | None, limit: int) -> CandidatePage:
         if not 1 <= limit <= 25:
@@ -64,6 +66,13 @@ class FakeCandidateReader:
     def get_governed_status(self, candidate_id: str) -> str:
         self._find(candidate_id)
         return self.governed_statuses.get(candidate_id, "UNKNOWN")
+
+    def get_identity_links(self, candidate_id: str) -> tuple[IdentityLink, ...]:
+        candidate = self._find(candidate_id)
+        links = self.identity_links.get(candidate_id, ())
+        if any(link.candidate != candidate.identity for link in links):
+            raise ValueError("identity link returned for another candidate")
+        return links[:2]
 
     def _find(self, candidate_id: str) -> CandidateSummary:
         for candidate in self.candidates:

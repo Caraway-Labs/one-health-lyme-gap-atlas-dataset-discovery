@@ -4,9 +4,11 @@ Semantic analysis may resolve UNKNOWN, but cannot override a supported exact
 identity or a documented source-version relation.
 """
 
+from typing import Literal
+
 from pydantic import Field, model_validator
 
-from .models import StrictModel
+from .models import CandidateIdentity, StrictModel
 from .ranking import Relationship
 
 
@@ -38,6 +40,27 @@ class RelationshipResult(StrictModel):
     relationship: Relationship
     basis: str
     supporting_observation_ids: tuple[str, ...]
+
+
+class IdentityLink(StrictModel):
+    """One deterministic catalog identity equality from a bounded data-owned view."""
+
+    candidate: CandidateIdentity
+    linked_resource_key: str = Field(min_length=1, max_length=500)
+    linked_catalog_dataset_id: str = Field(min_length=1, max_length=200)
+    linked_catalog_resource_id: str = Field(min_length=1, max_length=200)
+    relationship: Literal[Relationship.EXACT_DUPLICATE, Relationship.ALTERNATE_DISTRIBUTION]
+    basis: Literal["EXACT_RESOURCE_KEY", "EXACT_CANONICAL_URL", "SAME_CATALOG_DATASET"]
+
+    @model_validator(mode="after")
+    def match_basis(self) -> "IdentityLink":
+        if (self.relationship == Relationship.ALTERNATE_DISTRIBUTION) != (
+            self.basis == "SAME_CATALOG_DATASET"
+        ):
+            raise ValueError("identity link relationship and basis disagree")
+        if self.linked_catalog_resource_id == self.candidate.catalog_resource_id:
+            raise ValueError("identity link cannot point to the candidate itself")
+        return self
 
 
 def classify_relationship(signals: RelationshipSignals) -> RelationshipResult:

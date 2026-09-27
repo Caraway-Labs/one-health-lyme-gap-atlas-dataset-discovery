@@ -22,7 +22,7 @@
       "processed": 1,
       "recommendations": 1,
       "model_calls": 4,
-      "tool_calls": 3,
+      "tool_calls": 4,
       "replay": true
     },
     {
@@ -34,7 +34,7 @@
       "processed": 2,
       "recommendations": 1,
       "model_calls": 4,
-      "tool_calls": 5
+      "tool_calls": 6
     },
     {
       "id": "governed-then-valid",
@@ -45,7 +45,7 @@
       "processed": 2,
       "recommendations": 1,
       "model_calls": 4,
-      "tool_calls": 4
+      "tool_calls": 5
     },
     {
       "id": "invalid-then-valid",
@@ -56,7 +56,7 @@
       "processed": 2,
       "recommendations": 1,
       "model_calls": 5,
-      "tool_calls": 5
+      "tool_calls": 7
     },
     {
       "id": "unmetered-stops-run",
@@ -67,7 +67,7 @@
       "processed": 0,
       "recommendations": 0,
       "model_calls": 1,
-      "tool_calls": 3,
+      "tool_calls": 4,
       "stop_reason": "analyze_candidate_relationship:UnmeteredModelResponse"
     },
     {
@@ -80,7 +80,7 @@
       "processed": 2,
       "recommendations": 1,
       "model_calls": 4,
-      "tool_calls": 5,
+      "tool_calls": 6,
       "replay": true
     },
     {
@@ -95,7 +95,7 @@
       "processed": 1,
       "recommendations": 1,
       "model_calls": 5,
-      "tool_calls": 4
+      "tool_calls": 5
     },
     {
       "id": "batch-outage-exhausted",
@@ -136,7 +136,7 @@
       "processed": 1,
       "recommendations": 0,
       "model_calls": 2,
-      "tool_calls": 3
+      "tool_calls": 4
     },
     {
       "id": "candidate-budget-stop",
@@ -148,7 +148,7 @@
       "processed": 1,
       "recommendations": 1,
       "model_calls": 4,
-      "tool_calls": 3,
+      "tool_calls": 4,
       "stop_reason": "CANDIDATE_BUDGET"
     },
     {
@@ -163,6 +163,41 @@
       "model_calls": 0,
       "tool_calls": 0,
       "stop_reason": "EXPLICIT_CANCELLATION"
+    },
+    {
+      "id": "exact-identity-before-model",
+      "candidates": [{"id": "duplicate", "identity_link": "EXACT"}, {"id": "good"}],
+      "nodes": ["initialize_run", "create_run", "load_discovery_context", "load_candidate_batch", "select_next_candidate", "assess_evidence_sufficiency", "analyze_candidate_relationship", "record_candidate_outcome", "select_next_candidate", "assess_evidence_sufficiency", "analyze_candidate_relationship", "classify_and_score_candidate", "generate_recommendation_rationale", "propose_search_expansions", "validate_candidate_result", "persist_recommendation", "select_next_candidate", "build_run_summary", "finalize_run"],
+      "status": "SUCCEEDED_WITH_RECOMMENDATIONS",
+      "outcomes": ["EXACT_DUPLICATE"],
+      "processed": 2,
+      "recommendations": 1,
+      "model_calls": 4,
+      "tool_calls": 7
+    },
+    {
+      "id": "alternate-distribution-low",
+      "candidates": [{"id": "alternate", "identity_link": "ALTERNATE"}],
+      "nodes": ["initialize_run", "create_run", "load_discovery_context", "load_candidate_batch", "select_next_candidate", "assess_evidence_sufficiency", "analyze_candidate_relationship", "classify_and_score_candidate", "generate_recommendation_rationale", "propose_search_expansions", "validate_candidate_result", "persist_recommendation", "select_next_candidate", "build_run_summary", "finalize_run"],
+      "status": "SUCCEEDED_WITH_RECOMMENDATIONS",
+      "outcomes": [],
+      "processed": 1,
+      "recommendations": 1,
+      "model_calls": 3,
+      "tool_calls": 4,
+      "expected_relationship": "ALTERNATE_DISTRIBUTION",
+      "expected_priority_bucket": "LOW"
+    },
+    {
+      "id": "ambiguous-links-abstain",
+      "candidates": [{"id": "ambiguous", "identity_link": "AMBIGUOUS"}],
+      "nodes": ["initialize_run", "create_run", "load_discovery_context", "load_candidate_batch", "select_next_candidate", "assess_evidence_sufficiency", "analyze_candidate_relationship", "record_candidate_outcome", "select_next_candidate", "build_run_summary", "finalize_run"],
+      "status": "SUCCEEDED_NO_NEW_CANDIDATES",
+      "outcomes": ["AMBIGUOUS_RELATIONSHIP"],
+      "processed": 1,
+      "recommendations": 0,
+      "model_calls": 0,
+      "tool_calls": 4
     }
   ]
 }

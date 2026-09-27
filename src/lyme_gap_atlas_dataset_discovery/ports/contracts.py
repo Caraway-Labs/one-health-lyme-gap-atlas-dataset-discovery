@@ -17,6 +17,7 @@ from lyme_gap_atlas_dataset_discovery.domain.models import (
     RunReceipt,
 )
 from lyme_gap_atlas_dataset_discovery.domain.persistence import RecommendationWrite
+from lyme_gap_atlas_dataset_discovery.domain.relationships import IdentityLink
 from lyme_gap_atlas_dataset_discovery.domain.review import (
     PendingPage,
     ReviewCommand,
@@ -44,6 +45,8 @@ class CandidateReader(Protocol):
     ) -> tuple[AvailableObservation, ...]: ...
 
     def get_governed_status(self, candidate_id: str) -> str: ...
+
+    def get_identity_links(self, candidate_id: str) -> tuple[IdentityLink, ...]: ...
 
 
 class RecommendationRepository(Protocol):

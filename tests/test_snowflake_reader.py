@@ -9,6 +9,7 @@ from lyme_gap_atlas_dataset_discovery.adapters.snowflake_reader import (
     SnowflakeCandidateReader,
     SnowflakeDiscoveryContextReader,
 )
+from lyme_gap_atlas_dataset_discovery.domain.ranking import Relationship
 
 
 class Cursor:
@@ -67,6 +68,46 @@ def test_keyset_page_is_pinned_and_parameterized() -> None:
     assert "ORDER BY resource_key LIMIT %s" in sql
     assert params == ("snapshot-1", "", 3)
     assert timeout == 15
+
+
+def test_identity_links_use_fixed_snapshot_and_candidate_key() -> None:
+    link = (
+        "key",
+        "dataset-1",
+        "resource-1",
+        "related",
+        "dataset-1",
+        "resource-related",
+        "ALTERNATE_DISTRIBUTION",
+        "SAME_CATALOG_DATASET",
+    )
+    db = Connection([summary("key")], [link])
+    reader = SnowflakeCandidateReader(discovery_run_id="snapshot-1", connect=lambda: db)
+    links = reader.get_identity_links("key")
+    assert len(links) == 1
+    assert links[0].relationship == Relationship.ALTERNATE_DISTRIBUTION
+    sql, params, timeout = db.calls[-1]
+    assert "V_CANDIDATE_IDENTITY_LINKS" in sql
+    assert "LIMIT 2" in sql
+    assert params == ("snapshot-1", "key", "dataset-1", "resource-1")
+    assert timeout == 15
+
+
+def test_identity_link_for_another_candidate_fails_closed() -> None:
+    link = (
+        "other",
+        "dataset-1",
+        "resource-1",
+        "related",
+        "dataset-1",
+        "resource-related",
+        "EXACT_DUPLICATE",
+        "EXACT_RESOURCE_KEY",
+    )
+    db = Connection([summary("key")], [link])
+    reader = SnowflakeCandidateReader(discovery_run_id="snapshot-1", connect=lambda: db)
+    with pytest.raises(ValueError, match="another candidate"):
+        reader.get_identity_links("key")
 
 
 def test_evidence_query_pins_snapshot_and_exact_resource_identity() -> None:

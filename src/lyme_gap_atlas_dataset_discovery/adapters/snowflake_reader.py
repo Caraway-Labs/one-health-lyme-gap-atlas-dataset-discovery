@@ -13,6 +13,7 @@ from lyme_gap_atlas_dataset_discovery.domain.models import (
     DiscoveryContext,
     EvidenceRef,
 )
+from lyme_gap_atlas_dataset_discovery.domain.relationships import IdentityLink
 
 _SUMMARY = """SELECT resource_key, catalog_dataset_id, catalog_resource_id, title, publisher
 FROM DATASET_DISCOVERY.V_CANDIDATE_SUMMARY
@@ -36,6 +37,14 @@ AND catalog_dataset_id = %s AND catalog_resource_id = %s
 ORDER BY observed_at DESC, observation_id LIMIT %s"""
 _STATUS = """SELECT already_governed FROM DATASET_DISCOVERY.V_CANDIDATE_GOVERNED_STATUS
 WHERE resource_key = %s LIMIT 2"""
+_IDENTITY_LINKS = """SELECT resource_key, catalog_dataset_id, catalog_resource_id,
+linked_resource_key, linked_catalog_dataset_id, linked_catalog_resource_id,
+relationship, relationship_basis
+FROM DATASET_DISCOVERY.V_CANDIDATE_IDENTITY_LINKS
+WHERE discovery_run_id = %s AND resource_key = %s
+AND catalog_dataset_id = %s AND catalog_resource_id = %s
+ORDER BY CASE relationship WHEN 'EXACT_DUPLICATE' THEN 0 ELSE 1 END,
+linked_resource_key, linked_catalog_resource_id LIMIT 2"""
 _CONTEXT = """SELECT discovery_run_id, search_fingerprint, completed_at, status
 FROM DATASET_DISCOVERY.V_DISCOVERY_CONTEXT
 WHERE discovery_run_id = %s LIMIT 2"""
@@ -240,6 +249,38 @@ class SnowflakeCandidateReader:
         if rows and rows[0][0] is not None and type(rows[0][0]) is not bool:
             raise ValueError("invalid governed status view result")
         return "ALREADY_GOVERNED" if rows and rows[0][0] is True else "UNKNOWN"
+
+    def get_identity_links(self, candidate_id: str) -> tuple[IdentityLink, ...]:
+        identity = self.get_identity(candidate_id)
+        rows = self._query(
+            _IDENTITY_LINKS,
+            (
+                self.discovery_run_id,
+                identity.resource_key,
+                identity.catalog_dataset_id,
+                identity.catalog_resource_id,
+            ),
+            max_bytes=4096,
+            max_rows=2,
+        )
+        links = tuple(
+            IdentityLink(
+                candidate=CandidateIdentity(
+                    resource_key=_returned_id(row[0], "resource key", 500),
+                    catalog_dataset_id=_returned_id(row[1], "catalog dataset ID", 200),
+                    catalog_resource_id=_returned_id(row[2], "catalog resource ID", 200),
+                ),
+                linked_resource_key=_returned_id(row[3], "linked resource key", 500),
+                linked_catalog_dataset_id=_returned_id(row[4], "linked dataset ID", 200),
+                linked_catalog_resource_id=_returned_id(row[5], "linked resource ID", 200),
+                relationship=row[6],
+                basis=row[7],
+            )
+            for row in rows
+        )
+        if any(link.candidate != identity for link in links):
+            raise ValueError("identity link view returned another candidate")
+        return links
 
 
 class SnowflakeDiscoveryContextReader:
