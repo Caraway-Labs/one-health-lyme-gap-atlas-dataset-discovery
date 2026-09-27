@@ -2,7 +2,6 @@
 
 import argparse
 import copy
-import importlib
 import json
 import os
 import re
@@ -103,8 +102,36 @@ def verify_sequential_graph() -> None:
         raise PreflightError("langgraph.json lacks the compiled Dataset Discovery graph")
     if not exported.endswith("graph/hosted_entrypoint.py:graph"):
         raise PreflightError("hosted manifest must export the guarded sequential graph")
-    module = importlib.import_module("lyme_gap_atlas_dataset_discovery.graph.hosted_entrypoint")
-    nodes = set(module.graph.get_graph().nodes)
+    # Compile the same graph factory as the hosted entrypoint with synthetic
+    # credentials. Local preflight must never require secret values in env.
+    from lyme_gap_atlas_dataset_discovery.graph.hosted import HostedConfig, build_hosted_graph
+    from lyme_gap_atlas_dataset_discovery.model_policy import LunaPriceTable, ModelPolicy
+
+    graph_env = {
+        "ATLAS_DISCOVERY_PROFILE": "HOSTED_MANUAL",
+        "FRAMEWORK_REPO_SHA": "a" * 40,
+        "ATLAS_DISCOVERY_SNAPSHOT_ID": "preflight-snapshot",
+        "ATLAS_PRICE_TABLE_VERSION": LunaPriceTable.standard_v1().version,
+        "ATLAS_MODEL_CONFIG_FINGERPRINT": ModelPolicy.luna_low_v1().fingerprint,
+        "ATLAS_MODEL_PROVIDER": "openai",
+        "ATLAS_MODEL_ID": "gpt-6-luna",
+        "ATLAS_MODEL_API": "responses",
+        "ATLAS_MODEL_REASONING_EFFORT": "low",
+        "ATLAS_MODEL_POLICY_VERSION": "atlas-dd-model-v1",
+        "ATLAS_DD_DEV_OPENAI_API_KEY": "synthetic-preflight-only",
+        "SNOWFLAKE_ACCOUNT": "preflight-account",
+        "SNOWFLAKE_USER": "PREFLIGHT_SERVICE",
+        "SNOWFLAKE_ROLE": "OH_LYME_DEV_DATASET_DISCOVERY_RUNTIME",
+        "SNOWFLAKE_DATABASE": "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+        "SNOWFLAKE_WAREHOUSE": "OH_LYME_DEV_WH",
+        "SNOWFLAKE_PAT": "synthetic-preflight-only",
+    }
+    config = HostedConfig.from_environment(graph_env)
+
+    def no_connection(_config: HostedConfig) -> Any:
+        raise PreflightError("graph compilation unexpectedly opened Snowflake")
+
+    nodes = set(build_hosted_graph(config, raw_connect=no_connection).get_graph().nodes)
     validate_graph_nodes(nodes)
 
 

@@ -61,11 +61,7 @@ def test_preflight_requires_every_reviewed_candidate_node(missing: str) -> None:
         preflight.validate_graph_nodes(preflight.REQUIRED_NODES - {missing})
 
 
-def test_manifest_exports_real_sequential_graph(monkeypatch: pytest.MonkeyPatch) -> None:
-    from test_hosted_graph import environment as hosted_environment
-
-    for name, value in hosted_environment().items():
-        monkeypatch.setenv(name, value)
+def test_manifest_exports_real_sequential_graph_without_operator_secrets() -> None:
     preflight.verify_sequential_graph()
 
 
