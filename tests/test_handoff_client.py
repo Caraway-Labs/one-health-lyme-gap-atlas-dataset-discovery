@@ -133,7 +133,7 @@ def test_fake_handoff_requires_exact_accepted_review_and_replays_once() -> None:
         ("KNOWN_RESTRICTED", False, False, "HANDED_OFF", "NO_AUTOMATED_ACQUISITION"),
         (None, True, False, "HANDED_OFF", "NO_AUTOMATED_ACQUISITION"),
         (None, False, True, "ALREADY_GOVERNED", "INVESTIGATE_BEFORE_ACQUISITION"),
-        ("KNOWN_PROHIBITED", False, False, "POLICY_BLOCKED", "INVESTIGATE_BEFORE_ACQUISITION"),
+        ("KNOWN_PROHIBITED", False, False, "POLICY_BLOCKED", "NO_AUTOMATED_ACQUISITION"),
     ],
 )
 def test_fake_rights_and_existing_source_classification(
