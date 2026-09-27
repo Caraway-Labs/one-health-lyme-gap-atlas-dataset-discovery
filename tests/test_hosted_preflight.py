@@ -51,6 +51,14 @@ def test_smoke_graph_does_not_satisfy_sequential_node_set() -> None:
         preflight.validate_graph_nodes({"__start__", "fixture_smoke", "__end__"})
 
 
+@pytest.mark.parametrize(
+    "missing", ["generate_recommendation_rationale", "propose_search_expansions"]
+)
+def test_preflight_requires_every_reviewed_candidate_node(missing: str) -> None:
+    with pytest.raises(preflight.PreflightError, match="smoke or incomplete graph"):
+        preflight.validate_graph_nodes(preflight.REQUIRED_NODES - {missing})
+
+
 def test_manifest_exports_real_sequential_graph(monkeypatch: pytest.MonkeyPatch) -> None:
     from test_hosted_graph import environment as hosted_environment
 

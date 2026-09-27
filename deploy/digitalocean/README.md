@@ -3,17 +3,18 @@
 Story #11 target: DigitalOcean Managed Agents Harness Runtime, `agent: langgraph`.
 This directory contains a secret-free JSON environment template and a
 read-only preflight. Neither creates a session, a trigger, a config, or a
-DigitalOcean resource. The root `langgraph.json` must export the reviewed
-sequential graph before launch. As of 2026-09-26 it still exports the
-foundation `fixture_smoke` graph; the preflight rejects it.
+DigitalOcean resource. The root `langgraph.json` exports the reviewed
+sequential graph; the foundation `fixture_smoke` graph remains local-only.
 
-Current local observation (2026-09-26): `doctl --version` is unsupported;
-`doctl version` reports `1.160.1-release`; `doctl harness-runtime --help`
-reports an unknown command. The installed CLI therefore cannot pass preflight.
-The [current doctl reference](https://docs.digitalocean.com/reference/doctl/reference/harness-runtime/)
-documents `harness-runtime`; upgrade to a currently supported release before
-continuing. Record the version actually used as deployment evidence. Do not
-pin a future CLI version into the application.
+Local observation (2026-09-26): an older `1.160.1-release` binary is first on
+`PATH` and lacks `harness-runtime`. A separately installed `1.175.0-release`
+binary has `harness-runtime`, `validate`, and `create --dry-run`. With synthetic
+placeholder values, its local validator accepted the checked-in manifest and
+its dry run resolved `agent: langgraph`, the fixture SHA, and redacted secret
+slots. This proves CLI syntax and manifest shape only. The intended account,
+private team clone, actual secrets, model, Snowflake role, and hosted execution
+remain unverified. Record the version used at deployment; do not pin a future
+CLI version into the application.
 
 ## Ordered gate before the first manual session
 

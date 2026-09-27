@@ -23,6 +23,8 @@ REQUIRED_NODES = {
     "assess_evidence_sufficiency",
     "analyze_candidate_relationship",
     "classify_and_score_candidate",
+    "generate_recommendation_rationale",
+    "propose_search_expansions",
     "validate_candidate_result",
     "persist_recommendation",
     "record_candidate_outcome",
