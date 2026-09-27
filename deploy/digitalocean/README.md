@@ -46,7 +46,8 @@ pin a future CLI version into the application.
    fully expanded spec or credentials into tickets, logs, or this repository.
 6. Supply the exact 40-character evaluated `FRAMEWORK_REPO_SHA`, verify local
    HEAD and the remote GitHub commit match it, and record the evaluation
-   corpus/report version, graph/spec versions, model/provider/price table, and
+   corpus/report version, graph/spec versions, pinned
+   `ATLAS_DISCOVERY_SNAPSHOT_ID`, model/provider/`ATLAS_PRICE_TABLE_VERSION`, and
    the commit used for the rendered spec. A branch name is not a deployment
    identity. Re-evaluate after any code or spec change.
 7. Complete protected DEV Snowflake migrations, owner/security role review,
