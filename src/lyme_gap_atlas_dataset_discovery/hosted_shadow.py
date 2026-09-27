@@ -1,6 +1,7 @@
 """One bounded, sequential SHADOW invocation inside Harness Runtime."""
 
 import argparse
+import hashlib
 import json
 import re
 from typing import Any
@@ -8,7 +9,11 @@ from typing import Any
 from opentelemetry import trace
 
 from lyme_gap_atlas_dataset_discovery.graph.budgets import PROFILE_DEFAULTS, RunProfile
-from lyme_gap_atlas_dataset_discovery.graph.hosted import HostedConfig, build_hosted_graph
+from lyme_gap_atlas_dataset_discovery.graph.hosted import (
+    HostedConfig,
+    build_hosted_graph,
+    validate_selected_candidate_ids,
+)
 from lyme_gap_atlas_dataset_discovery.graph.state import DatasetDiscoveryState
 from lyme_gap_atlas_dataset_discovery.model_policy import ModelPolicy
 from lyme_gap_atlas_dataset_discovery.observability import (
@@ -24,7 +29,12 @@ _SESSION_ID = re.compile(
 
 
 def bounded_input(
-    config: HostedConfig, *, run_id: str, trace_id: str, host_session_id: str
+    config: HostedConfig,
+    *,
+    run_id: str,
+    trace_id: str,
+    host_session_id: str,
+    selected_candidate_ids: tuple[str, ...] = (),
 ) -> DatasetDiscoveryState:
     """Pin a manually triggered three-candidate DEV shadow proof."""
     if config.profile != RunProfile.SHADOW:
@@ -33,6 +43,12 @@ def bounded_input(
         raise ValueError("run or trace identity is invalid")
     if not _SESSION_ID.fullmatch(host_session_id):
         raise ValueError("host session identity is invalid")
+    selected = (
+        validate_selected_candidate_ids(selected_candidate_ids) if selected_candidate_ids else ()
+    )
+    selection_version = (
+        hashlib.sha256("|".join(selected).encode("utf-8")).hexdigest() if selected else None
+    )
     policy = ModelPolicy.luna_low_v1()
     limits = PROFILE_DEFAULTS[RunProfile.SHADOW].model_copy(
         update={
@@ -65,7 +81,9 @@ def bounded_input(
         "model_fingerprint": config.model_fingerprint,
         "price_table_version": config.price_version,
         "prompt_versions": {"semantic": str(policy.document["prompt_version"])},
-        "tool_versions": {},
+        "tool_versions": (
+            {"candidate_selection_v1": selection_version} if selection_version else {}
+        ),
         "eval_version": "dataset-discovery-domain-v1",
         "trace_id": trace_id,
         "host_session_id": host_session_id,
@@ -78,6 +96,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--trace-id", required=True)
     parser.add_argument("--host-session-id", required=True)
+    parser.add_argument("--candidate-id", action="append", default=[])
     args = parser.parse_args(argv)
     try:
         config = HostedConfig.from_environment()
@@ -86,8 +105,13 @@ def main(argv: list[str] | None = None) -> int:
             run_id=args.run_id,
             trace_id=args.trace_id,
             host_session_id=args.host_session_id,
+            selected_candidate_ids=tuple(args.candidate_id),
         )
-        graph = build_hosted_graph(config)
+        graph = (
+            build_hosted_graph(config, selected_candidate_ids=tuple(args.candidate_id))
+            if args.candidate_id
+            else build_hosted_graph(config)
+        )
         tracer = trace.get_tracer(SERVICE_NAME)
         with tracer.start_as_current_span(
             "dataset_discovery.run", record_exception=False, set_status_on_exception=False

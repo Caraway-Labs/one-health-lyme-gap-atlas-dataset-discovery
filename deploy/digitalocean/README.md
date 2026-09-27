@@ -120,11 +120,19 @@ For Arize AX SaaS, the SHADOW template fixes the OTLP/HTTP endpoint to
 allows only `otlp.arize.com` as the added telemetry egress host. Supply
 `ATLAS_DD_DEV_ARIZE_API_KEY` and `ATLAS_DD_DEV_ARIZE_SPACE_ID` from the
 owner-provided configuration as separate file-backed managed secrets. Invoke
-`python3 deploy/digitalocean/arize_shadow.py` inside the session; this
+`python3 -m deploy.digitalocean.arize_shadow` inside the session; this
 deployment-only bootstrap composes the required OTLP headers without printing
 either value. The application graph and shared exporter remain vendor-neutral.
 The operator must inspect the received trace in the Arize AX project; a
 successful exporter call alone is insufficient.
+
+For a one-time investigation of up to three named candidates in the pinned DEV
+snapshot, repeat `--candidate-id candidate:<32 lowercase hex>` in sorted order
+on that same entrypoint. The reader resolves each identity through the governed
+one-result view and never accepts arbitrary SQL or URLs. The exact selection
+hash is included in immutable run metadata so a replay with a different list
+fails the run fingerprint check. Omit the option for the normal keyset-ordered
+SHADOW sample. This is an operator-scoped sample, not a search-policy change.
 
 ## Read-only executable check
 
