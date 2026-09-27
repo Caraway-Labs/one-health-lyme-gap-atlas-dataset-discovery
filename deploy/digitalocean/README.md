@@ -20,6 +20,10 @@ pin a future CLI version into the application.
 1. Record `doctl --version` (or `doctl version` for older installations), then
    run `doctl harness-runtime --help` and `doctl harness-runtime validate --help`.
    Upgrade and rerun if either command is absent.
+   If an older manually installed binary shadows the upgraded CLI on Windows,
+   set `ATLAS_DOCTL_BIN` to the absolute path of the reviewed `doctl.exe` for
+   this preflight invocation. The script checks that file and records its
+   reported version; it does not alter the system PATH.
 2. Re-authenticate the intended DigitalOcean team/account through the approved
    operator context, then compare `doctl account get --format UUID --no-header`
    to the owner-recorded expected account UUID. Do not print or inspect API

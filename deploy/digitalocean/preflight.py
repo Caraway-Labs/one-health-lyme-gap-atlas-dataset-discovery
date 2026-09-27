@@ -57,9 +57,16 @@ class PreflightError(ValueError):
 
 
 def _command(*args: str, timeout: int = 30) -> str:
+    actual_args = args
+    selected_doctl = os.environ.get("ATLAS_DOCTL_BIN")
+    if args[0] == "doctl" and selected_doctl:
+        binary = Path(selected_doctl)
+        if not binary.is_absolute() or not binary.is_file() or binary.name.lower() != "doctl.exe":
+            raise PreflightError("ATLAS_DOCTL_BIN is not an installed doctl executable")
+        actual_args = (str(binary), *args[1:])
     try:
         result = subprocess.run(
-            args, capture_output=True, text=True, check=False, timeout=timeout, cwd=ROOT
+            actual_args, capture_output=True, text=True, check=False, timeout=timeout, cwd=ROOT
         )
     except (OSError, subprocess.TimeoutExpired) as error:
         raise PreflightError(f"unavailable command: {args[0]}") from error

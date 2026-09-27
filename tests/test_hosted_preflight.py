@@ -3,6 +3,7 @@
 import importlib.util
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -68,6 +69,23 @@ def test_old_cli_version_syntax_is_recorded_without_pin(monkeypatch: pytest.Monk
 
     monkeypatch.setattr(preflight, "_command", command)
     assert preflight.installed_doctl_version() == "1.160.1-release"
+
+
+def test_explicit_upgraded_doctl_path_overrides_shadowed_binary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    binary = tmp_path / "doctl.exe"
+    binary.write_bytes(b"fixture")
+    monkeypatch.setenv("ATLAS_DOCTL_BIN", str(binary))
+    calls: list[tuple[str, ...]] = []
+
+    def run(args: tuple[str, ...], **_kwargs: object) -> SimpleNamespace:
+        calls.append(args)
+        return SimpleNamespace(returncode=0, stdout="doctl version 1.175.0-release")
+
+    monkeypatch.setattr(preflight.subprocess, "run", run)
+    assert preflight.installed_doctl_version() == "1.175.0-release"
+    assert calls == [(str(binary), "--version")]
 
 
 def test_preflight_uses_only_validation_and_dry_run_commands(
