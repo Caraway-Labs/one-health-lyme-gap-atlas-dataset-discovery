@@ -106,3 +106,5 @@ For incident recovery, pause or remove the manual session, preserve the exact
 SHA and redacted run/trace evidence, repair via a new evaluated SHA, and keep
 scheduling disabled. Rollback selects a previously evaluated SHA and repeats
 the same preflight and manual acceptance; it does not silently switch branches.
+See [hosted operations](operations.md) for the session ledger, incident,
+credential rotation, stale-session cleanup, and rehearsal procedures.
