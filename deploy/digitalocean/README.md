@@ -30,7 +30,8 @@ pin a future CLI version into the application.
    [LangGraph runtime guide](https://docs.digitalocean.com/products/managed-agents/agent-harness-runtime/how-to/run-langgraph-agent/)
    requires a compiled graph, a dependency file, `langgraph.json`, and a pinned
    repository commit. The hosted entrypoint now exports the sequential graph;
-   the separate foundation smoke module remains fixture-only.
+   the separate foundation smoke module remains fixture-only. The manifest
+   pins Python 3.12 to match the package requirement.
 4. Verify the intended team has a GitHub connection authorized for the private
    repository. `GITHUB_TOKEN: oauth/github` is a managed secret reference; it
    is not a token literal. Connecting or replacing a team GitHub OAuth link is

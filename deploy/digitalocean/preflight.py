@@ -88,6 +88,8 @@ def validate_graph_nodes(nodes: set[str]) -> None:
 
 def verify_sequential_graph() -> None:
     manifest = json.loads((ROOT / "langgraph.json").read_text(encoding="utf-8"))
+    if manifest.get("python_version") != "3.12":
+        raise PreflightError("hosted Python version differs from application requirement")
     if "env" in manifest:
         raise PreflightError("hosted manifest must use managed environment, not a local .env file")
     exported = manifest.get("graphs", {}).get("dataset_discovery")
