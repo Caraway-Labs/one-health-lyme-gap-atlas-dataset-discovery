@@ -75,7 +75,7 @@ places catalog text in the user data message under fixed versioned system
 instructions, and requests strict JSON for each of the four semantic steps.
 The wrapper then checks citations and observed values against retained evidence;
 deterministic ranking remains outside the model. A hosted bootstrap must supply
-an operator-reviewed HTTPS chat-completions endpoint, exact model ID, managed
+an operator-reviewed HTTPS `/v1` base URL, exact model ID, managed
 API credential, and price record with version plus USD per million input/output
 tokens. No price or model fallback is allowed. The adapter bounds request and
 response bytes, output tokens, timeout, response shape, model identity, and
