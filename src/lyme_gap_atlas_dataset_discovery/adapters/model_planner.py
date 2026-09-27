@@ -25,6 +25,7 @@ from lyme_gap_atlas_dataset_discovery.domain.analysis import (
 from lyme_gap_atlas_dataset_discovery.domain.models import CandidateSummary
 from lyme_gap_atlas_dataset_discovery.domain.ranking import RankingDimensions
 from lyme_gap_atlas_dataset_discovery.domain.relationships import RelationshipResult
+from lyme_gap_atlas_dataset_discovery.graph.budgets import BudgetExceeded
 from lyme_gap_atlas_dataset_discovery.graph.planner import (
     ModelAllowance,
     ModelUsage,
@@ -137,12 +138,13 @@ class BoundedModelPlanner:
             )
             <= 0
         ):
-            raise ValueError("model budget does not allow another call")
+            raise BudgetExceeded("model budget does not allow another call")
         user = {"task": task, "output_shape": shape, "data": content}
+        reserved_output_tokens = min(allowance.max_output_tokens, 1024)
         payload = {
             "model": self.model_id,
             "temperature": 0,
-            "max_tokens": min(allowance.max_output_tokens, 1024),
+            "max_tokens": reserved_output_tokens,
             "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": _SYSTEM},
@@ -152,8 +154,18 @@ class BoundedModelPlanner:
                 },
             ],
         }
-        if len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) > MAX_REQUEST_BYTES:
+        request_bytes = len(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+        if request_bytes > MAX_REQUEST_BYTES:
             raise ValueError("model request exceeded byte limit")
+        # Byte count plus a fixed envelope is a conservative tokenizer-neutral
+        # reservation for the reviewed text-only chat request.
+        reserved_input_tokens = request_bytes + 128
+        if (
+            reserved_input_tokens > allowance.max_input_tokens
+            or self.price.charge_cents(reserved_input_tokens, reserved_output_tokens)
+            > allowance.max_estimated_spend_cents
+        ):
+            raise BudgetExceeded("model request exceeds remaining token or spend allowance")
         endpoint = self.endpoint.rstrip("/")
         if not endpoint.endswith("/chat/completions"):
             endpoint += "/chat/completions"
@@ -183,12 +195,8 @@ class BoundedModelPlanner:
         except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError):
             raise ValueError("model response failed strict content or usage validation") from None
         charge = self.price.charge_cents(input_tokens, output_tokens)
-        if (
-            input_tokens > allowance.max_input_tokens
-            or output_tokens > allowance.max_output_tokens
-            or charge > allowance.max_estimated_spend_cents
-        ):
-            raise ValueError("model reported usage beyond allowance")
+        # Return measured usage even when the provider broke its allowance.
+        # The graph charges it and records BUDGET_STOPPED, rather than losing cost.
         return parsed, ModelUsage(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
