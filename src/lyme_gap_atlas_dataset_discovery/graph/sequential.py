@@ -277,6 +277,11 @@ def build_graph(deps: GraphDependencies) -> Any:
             raise ValueError("run code SHA differs from deployed graph")
         if deps.required_profile is not None and state["profile"] != deps.required_profile:
             raise ValueError("run profile differs from deployed graph")
+        if (
+            deps.required_profile in {RunProfile.HOSTED_MANUAL, RunProfile.SHADOW}
+            and state["trigger_type"] != "MANUAL"
+        ):
+            raise ValueError("hosted run requires a manual trigger until scheduling is approved")
         if deps.expected_model_id is not None and state.get("model_id") != deps.expected_model_id:
             raise ValueError("run model differs from deployed graph")
         if (

@@ -78,6 +78,14 @@ CLI version into the application.
    and governed handoff. Recurring triggers remain absent until explicit owner
    approval of cadence, budget, price table and permission policy.
 
+The hosted graph can validate either `HOSTED_MANUAL` or `SHADOW` from its
+deployment environment and rejects a run state with a different profile. Both
+modes require `trigger_type=MANUAL`; `SCHEDULED` stays disabled. This checked-in
+template and its preflight remain `HOSTED_MANUAL` only. A shadow deployment
+requires a separately reviewed template/preflight after the manual session has
+been verified, with its own exact evaluated SHA and bounded run evidence. Merely
+changing this template's profile does not pass the first-session preflight.
+
 ## Read-only executable check
 
 From the repository root, after setting nonsecret environment fields and

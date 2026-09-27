@@ -28,6 +28,7 @@ _IDENTIFIER = re.compile(r"^[A-Z][A-Z0-9_]{1,127}$")
 
 @dataclass(frozen=True)
 class HostedConfig:
+    profile: RunProfile
     code_sha: str
     snapshot_id: str
     price_version: str
@@ -62,12 +63,17 @@ class HostedConfig:
             "SNOWFLAKE_WAREHOUSE",
             "SNOWFLAKE_PAT",
         )
-        if env.get("ATLAS_DISCOVERY_PROFILE") != RunProfile.HOSTED_MANUAL:
-            raise ValueError("hosted entrypoint requires HOSTED_MANUAL profile")
+        try:
+            profile = RunProfile(env.get("ATLAS_DISCOVERY_PROFILE", ""))
+        except ValueError:
+            raise ValueError("hosted entrypoint requires a reviewed profile") from None
+        if profile not in {RunProfile.HOSTED_MANUAL, RunProfile.SHADOW}:
+            raise ValueError("hosted entrypoint requires HOSTED_MANUAL or SHADOW profile")
         if any(not env.get(name) for name in required):
             raise ValueError("hosted entrypoint is missing required managed configuration")
         try:
             config = cls(
+                profile=profile,
                 code_sha=env["FRAMEWORK_REPO_SHA"],
                 snapshot_id=env["ATLAS_DISCOVERY_SNAPSHOT_ID"],
                 price_version=env["ATLAS_PRICE_TABLE_VERSION"],
@@ -234,7 +240,7 @@ def build_hosted_graph(
             deployed_code_sha=config.code_sha,
             expected_snapshot_id=config.snapshot_id,
             approved_price_table_version=config.price_version,
-            required_profile=RunProfile.HOSTED_MANUAL,
+            required_profile=config.profile,
             expected_model_id=config.model_id,
             expected_model_provider="DIGITALOCEAN_HARNESS_INFERENCE",
         )
