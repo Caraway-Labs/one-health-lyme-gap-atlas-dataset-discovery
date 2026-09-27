@@ -19,6 +19,8 @@ def environment() -> dict[str, str]:
     return {
         **{name: "reviewed-nonsecret" for name in preflight.NONSECRET_VARS},
         **{name: "test-secret" for name in preflight.SECRET_VARS},
+        "SNOWFLAKE_EGRESS_HOST": "account.snowflakecomputing.com",
+        "OTLP_EGRESS_HOST": "otel.example.com",
     }
 
 
@@ -29,6 +31,7 @@ def test_spec_renders_exact_sha_without_copying_secrets_into_env() -> None:
     assert rendered["env"]["ATLAS_DISCOVERY_PROFILE"] == "HOSTED_MANUAL"
     assert rendered["secrets"]["GITHUB_TOKEN"] == "oauth/github"
     assert "test-secret" not in json.dumps(rendered)
+    assert "api.openai.com" in rendered["egress"]["allow_hosts"]
     assert all("TOKEN" not in name and "PAT" not in name for name in rendered["env"])
 
 
@@ -98,6 +101,7 @@ def test_explicit_upgraded_doctl_path_overrides_shadowed_binary(
 
 def test_preflight_uses_only_validation_and_dry_run_commands(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     sha = "a" * 40
     account_uuid = "11111111-2222-3333-4444-555555555555"
@@ -121,6 +125,10 @@ def test_preflight_uses_only_validation_and_dry_run_commands(
 
     for name, value in environment().items():
         monkeypatch.setenv(name, value)
+    for name in preflight.SECRET_VARS:
+        path = tmp_path / (name + ".txt")
+        path.write_text("synthetic-test-value", encoding="utf-8")
+        monkeypatch.setenv(name + "_FILE", str(path))
     monkeypatch.setattr(preflight, "_command", command)
     monkeypatch.setattr(preflight, "installed_doctl_version", lambda: "reviewed-test-version")
     monkeypatch.setattr(preflight, "verify_sequential_graph", lambda: None)

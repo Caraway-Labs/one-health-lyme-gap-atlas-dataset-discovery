@@ -73,6 +73,7 @@ class GraphDependencies:
     required_profile: RunProfile | None = None
     expected_model_id: str | None = None
     expected_model_provider: str | None = None
+    expected_model_fingerprint: str | None = None
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)
     cancellation_requested: Callable[[], bool] = lambda: False
     sleep: Callable[[float], None] = time.sleep
@@ -289,6 +290,11 @@ def build_graph(deps: GraphDependencies) -> Any:
             and state.get("model_provider") != deps.expected_model_provider
         ):
             raise ValueError("run provider differs from deployed graph")
+        if (
+            deps.expected_model_fingerprint is not None
+            and state.get("model_fingerprint") != deps.expected_model_fingerprint
+        ):
+            raise ValueError("run model configuration differs from deployed graph")
         if (
             deps.expected_snapshot_id is not None
             and state["evidence_snapshot_id"] != deps.expected_snapshot_id

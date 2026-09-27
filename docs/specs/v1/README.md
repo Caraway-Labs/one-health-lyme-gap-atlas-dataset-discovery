@@ -103,12 +103,20 @@ remain outside this unattended runtime.
 The semantic planner adapter is a separate bounded port. It accepts only the
 reader's allowlisted observations and canonical candidate/analysis values,
 places catalog text in the user data message under fixed versioned system
-instructions, and requests strict JSON for each of the four semantic steps.
+instructions, and requests a strict Pydantic-derived JSON schema for each of
+the four semantic steps. The initial candidate policy is the packaged,
+non-secret `config/openai-gpt-6-luna-low-v1.json`: OpenAI `gpt-6-luna`,
+Responses API, low reasoning, structured output, no hosted tools, and no
+provider-side response storage. Its fingerprint includes the provider, model,
+API, reasoning, capabilities, prompt version, processing mode, output cap, and
+storage setting; credentials and environment-specific secret names are excluded.
 The wrapper then checks citations and observed values against retained evidence;
 deterministic ranking remains outside the model. A hosted bootstrap must supply
-an operator-reviewed HTTPS `/v1` base URL, exact model ID, managed
-API credential, and price record with version plus USD per million input/output
-tokens. No price or model fallback is allowed. The adapter bounds request and
+the approved environment-specific managed credential and exact policy/price
+fingerprints. The packaged Standard price table includes cached input, cache
+writes, and the >272K input-token long-context band. Unreported cache-write
+usage is conservatively billed at the higher cache-write rate. No price or
+model fallback is allowed. The adapter bounds request and
 response bytes, output tokens, timeout, response shape, model identity, and
 reported token usage. Before a call, request bytes plus a fixed envelope reserve
 input allowance and reviewed maximum output cost; reported usage is returned

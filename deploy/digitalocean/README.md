@@ -45,12 +45,17 @@ CLI version into the application.
    the DigitalOcean team clone permission; retain the team connection evidence
    and verify the pinned clone in the first manual session.
 5. Review the JSON template for `env` versus `secrets`, set nonsecret runtime
-   values and managed secret values outside source control, and run
+   values and secret-file references outside source control, and run
    `doctl harness-runtime validate --spec <rendered-spec>`. Then run
    `doctl harness-runtime create --spec <rendered-spec> --dry-run`. Both are
    non-creating checks; the [CLI validator](https://docs.digitalocean.com/reference/doctl/reference/harness-runtime/validate/)
    catches credential placement and manifest-shape errors. Never print the
    fully expanded spec or credentials into tickets, logs, or this repository.
+   Supply exact `SNOWFLAKE_EGRESS_HOST` and `OTLP_EGRESS_HOST` names for the
+   intended account and exporter. The rendered host allowlist includes the
+   OpenAI API, private GitHub/bootstrap, Python package registry, Snowflake,
+   and OTLP endpoints. Validate whether platform-internal traffic requires any
+   further host before the first session; do not fall back to unrestricted egress.
 6. Supply the exact 40-character evaluated `FRAMEWORK_REPO_SHA`, verify local
    HEAD and the remote GitHub commit match it, and record the evaluation
    corpus/report version, graph/spec versions, pinned
@@ -62,9 +67,13 @@ CLI version into the application.
    OTLP/Phoenix endpoint, and bounded `HOSTED_MANUAL` profile. Validate the
    secret-bearing connection in a short, isolated DEV preflight without
    exposing values. If cost cannot be calculated, hosted model use is blocked.
-   Supply owner-reviewed `ATLAS_PRICE_INPUT_USD_PER_MILLION` and
-   `ATLAS_PRICE_OUTPUT_USD_PER_MILLION` with the recorded
-   `ATLAS_PRICE_TABLE_VERSION`. The hosted graph requires the dedicated
+   Supply the exact versioned `ATLAS_PRICE_TABLE_VERSION` and
+   `ATLAS_MODEL_CONFIG_FINGERPRINT` from the evaluated code. The hosted graph
+   requires OpenAI `gpt-6-luna` via Responses with low reasoning and no tools;
+   it reads the DEV-specific `ATLAS_DD_DEV_OPENAI_API_KEY` secret slot. The
+   underlying credential may be shared with later environments under the
+   owner's current decision, but their secret names must remain separate.
+   It also requires the dedicated
    `OH_LYME_DEV_DATASET_DISCOVERY_RUNTIME` role and
    `ONE_HEALTH_LYME_GAP_ATLAS_DEV` database.
    Every Snowflake operation opens a short PAT-backed connection and checks
@@ -89,12 +98,16 @@ changing this template's profile does not pass the first-session preflight.
 ## Read-only executable check
 
 From the repository root, after setting nonsecret environment fields and
-managed secret variables in the operator's environment:
+the local `ATLAS_DD_DEV_OPENAI_API_KEY_FILE`, `SNOWFLAKE_PAT_FILE`, and
+`OTEL_EXPORTER_OTLP_HEADERS_FILE` paths to nonempty files outside the repository:
 
 ```powershell
 uv run python deploy/digitalocean/preflight.py --sha <evaluated-40-char-sha> --account-uuid <owner-approved-team-uuid>
 ```
 
+The script passes those paths to `doctl create --dry-run` as `--secret NAME=@path`;
+it never places secret values in ordinary environment variables or the rendered
+spec. For a real session use the same file-backed `--secret` arguments.
 The script checks the local CLI, account, compiled graph node set, clean exact
 checkout, remote private commit, secret placement, and DigitalOcean validate
 and dry-run commands. It prints only version, account UUID, SHA and a bounded

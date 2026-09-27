@@ -34,10 +34,7 @@ REQUIRED_NODES = {
 NONSECRET_VARS = {
     "ATLAS_DISCOVERY_SNAPSHOT_ID",
     "ATLAS_PRICE_TABLE_VERSION",
-    "ATLAS_PRICE_INPUT_USD_PER_MILLION",
-    "ATLAS_PRICE_OUTPUT_USD_PER_MILLION",
-    "HARNESS_INFERENCE_BASE_URL",
-    "HARNESS_INFERENCE_MODEL",
+    "ATLAS_MODEL_CONFIG_FINGERPRINT",
     "SNOWFLAKE_ACCOUNT",
     "SNOWFLAKE_USER",
     "SNOWFLAKE_ROLE",
@@ -46,10 +43,12 @@ NONSECRET_VARS = {
     "OTEL_EXPORTER_OTLP_ENDPOINT",
 }
 SECRET_VARS = {
-    "HARNESS_INFERENCE_API_KEY",
+    "ATLAS_DD_DEV_OPENAI_API_KEY",
     "SNOWFLAKE_PAT",
     "OTEL_EXPORTER_OTLP_HEADERS",
 }
+EGRESS_VARS = {"SNOWFLAKE_EGRESS_HOST", "OTLP_EGRESS_HOST"}
+HOST = re.compile(r"^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
 UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
@@ -132,7 +131,7 @@ def render_spec(template: dict[str, Any], sha: str, environment: dict[str, str])
     ):
         raise PreflightError("private clone or managed secret inventory differs from contract")
     for name in SECRET_VARS:
-        if secrets[name] != "${" + name + "}" or not environment.get(name):
+        if secrets[name] != "${" + name + "}":
             raise PreflightError(f"managed secret reference unavailable: {name}")
     rendered = copy.deepcopy(template)
     rendered["env"]["FRAMEWORK_REPO_SHA"] = sha
@@ -140,6 +139,24 @@ def render_spec(template: dict[str, Any], sha: str, environment: dict[str, str])
         if values.get(name) != "${" + name + "}" or not environment.get(name):
             raise PreflightError(f"nonsecret environment field unavailable: {name}")
         rendered["env"][name] = environment[name]
+    egress = rendered.get("egress")
+    if not isinstance(egress, dict) or set(egress) != {"allow_hosts"}:
+        raise PreflightError("hosted egress must be an explicit host allowlist")
+    hosts = egress.get("allow_hosts")
+    if not isinstance(hosts, list) or "api.openai.com" not in hosts:
+        raise PreflightError("OpenAI provider egress is not allowlisted")
+    for name in EGRESS_VARS:
+        marker = "${" + name + "}"
+        value = environment.get(name)
+        if hosts.count(marker) != 1 or not value or not HOST.fullmatch(value):
+            raise PreflightError(f"required egress host unavailable: {name}")
+        if name == "SNOWFLAKE_EGRESS_HOST" and not value.endswith(
+            ".snowflakecomputing.com"
+        ):
+            raise PreflightError("Snowflake egress host is not an account endpoint")
+        hosts[hosts.index(marker)] = value
+    if any(not HOST.fullmatch(host) for host in hosts) or len(hosts) != len(set(hosts)):
+        raise PreflightError("egress allowlist contains an invalid or duplicate host")
     if any("KEY" in name or "TOKEN" in name or "PAT" in name for name in rendered["env"]):
         raise PreflightError("credential-like field found in public environment values")
     if rendered.get("permissions") != {"default": "ask"}:
@@ -166,11 +183,29 @@ def preflight(sha: str, account_uuid: str, template_path: Path) -> dict[str, str
         raise PreflightError("evaluated SHA is unavailable in private GitHub repository")
     template = json.loads(template_path.read_text(encoding="utf-8"))
     rendered = render_spec(template, sha, dict(os.environ))
+    secret_flags: list[str] = []
+    for name in sorted(SECRET_VARS):
+        file_name = os.environ.get(name + "_FILE")
+        if not file_name:
+            raise PreflightError(f"managed secret file reference unavailable: {name}")
+        secret_path = Path(file_name)
+        if (
+            not secret_path.is_absolute()
+            or not secret_path.is_file()
+            or secret_path.stat().st_size == 0
+        ):
+            raise PreflightError(f"managed secret file is unavailable or empty: {name}")
+        if secret_path.is_relative_to(ROOT):
+            raise PreflightError("managed secret file must remain outside the repository")
+        secret_flags.extend(("--secret", f"{name}=@{secret_path}"))
     with tempfile.TemporaryDirectory(prefix="atlas-discovery-preflight-") as directory:
         spec = Path(directory) / "langgraph-agent.json"
         spec.write_text(json.dumps(rendered), encoding="utf-8")
         _command("doctl", "harness-runtime", "validate", "--spec", str(spec))
-        _command("doctl", "harness-runtime", "create", "--spec", str(spec), "--dry-run")
+        _command(
+            "doctl", "harness-runtime", "create", "--spec", str(spec), "--dry-run",
+            *secret_flags,
+        )
     return {
         "doctl_version": version,
         "account_uuid": account_uuid,

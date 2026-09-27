@@ -1,5 +1,6 @@
 """Allowlisted graph telemetry; candidate text and model output never enter spans."""
 
+import hashlib
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
@@ -96,6 +97,12 @@ def traced_node(
                 value = state.get(field)
                 if isinstance(value, str):
                     span.set_attribute(f"atlas.discovery.{field}", value)
+            candidate_id = state.get("current_candidate_id")
+            if isinstance(candidate_id, str):
+                span.set_attribute(
+                    "atlas.discovery.candidate_key_sha256",
+                    hashlib.sha256(candidate_id.encode("utf-8")).hexdigest(),
+                )
             for field in _COUNT_FIELDS:
                 value = state.get(field)
                 if isinstance(value, int):

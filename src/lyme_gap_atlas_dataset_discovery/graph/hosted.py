@@ -3,14 +3,12 @@
 import os
 import re
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from lyme_gap_atlas_dataset_discovery.adapters.model_planner import (
-    BoundedModelPlanner,
-    ReviewedModelPrice,
-)
+from lyme_gap_atlas_dataset_discovery.adapters.model_planner import ReviewedModelPrice
+from lyme_gap_atlas_dataset_discovery.adapters.openai_responses import OpenAIResponsesPlanner
 from lyme_gap_atlas_dataset_discovery.adapters.snowflake_reader import (
     SnowflakeCandidateReader,
     SnowflakeDiscoveryContextReader,
@@ -18,6 +16,7 @@ from lyme_gap_atlas_dataset_discovery.adapters.snowflake_reader import (
 from lyme_gap_atlas_dataset_discovery.adapters.snowflake_repository import (
     SnowflakeRecommendationRepository,
 )
+from lyme_gap_atlas_dataset_discovery.model_policy import LunaPriceTable, ModelPolicy
 
 from .budgets import RunProfile
 from .sequential import GraphDependencies, PolicyViolation, build_graph
@@ -34,7 +33,8 @@ class HostedConfig:
     price_version: str
     inference_endpoint: str
     model_id: str
-    model_api_key: str
+    model_api_key: str = field(repr=False)
+    model_fingerprint: str
     input_usd_per_million: Decimal
     output_usd_per_million: Decimal
     snowflake_account: str
@@ -42,7 +42,7 @@ class HostedConfig:
     snowflake_role: str
     snowflake_database: str
     snowflake_warehouse: str
-    snowflake_pat: str
+    snowflake_pat: str = field(repr=False)
 
     @classmethod
     def from_environment(cls, values: Mapping[str, str] | None = None) -> "HostedConfig":
@@ -51,11 +51,13 @@ class HostedConfig:
             "FRAMEWORK_REPO_SHA",
             "ATLAS_DISCOVERY_SNAPSHOT_ID",
             "ATLAS_PRICE_TABLE_VERSION",
-            "HARNESS_INFERENCE_BASE_URL",
-            "HARNESS_INFERENCE_MODEL",
-            "HARNESS_INFERENCE_API_KEY",
-            "ATLAS_PRICE_INPUT_USD_PER_MILLION",
-            "ATLAS_PRICE_OUTPUT_USD_PER_MILLION",
+            "ATLAS_MODEL_CONFIG_FINGERPRINT",
+            "ATLAS_MODEL_PROVIDER",
+            "ATLAS_MODEL_ID",
+            "ATLAS_MODEL_API",
+            "ATLAS_MODEL_REASONING_EFFORT",
+            "ATLAS_MODEL_POLICY_VERSION",
+            "ATLAS_DD_DEV_OPENAI_API_KEY",
             "SNOWFLAKE_ACCOUNT",
             "SNOWFLAKE_USER",
             "SNOWFLAKE_ROLE",
@@ -71,17 +73,34 @@ class HostedConfig:
             raise ValueError("hosted entrypoint requires HOSTED_MANUAL or SHADOW profile")
         if any(not env.get(name) for name in required):
             raise ValueError("hosted entrypoint is missing required managed configuration")
+        policy = ModelPolicy.luna_low_v1()
+        price_table = LunaPriceTable.standard_v1()
+        if (
+            env["ATLAS_MODEL_CONFIG_FINGERPRINT"] != policy.fingerprint
+            or env["ATLAS_PRICE_TABLE_VERSION"] != price_table.version
+            or env["ATLAS_MODEL_PROVIDER"] != "openai"
+            or env["ATLAS_MODEL_ID"] != "gpt-6-luna"
+            or env["ATLAS_MODEL_API"] != "responses"
+            or env["ATLAS_MODEL_REASONING_EFFORT"] != "low"
+            or env["ATLAS_MODEL_POLICY_VERSION"] != "atlas-dd-model-v1"
+        ):
+            raise ValueError("hosted model configuration differs from reviewed source policy")
         try:
             config = cls(
                 profile=profile,
                 code_sha=env["FRAMEWORK_REPO_SHA"],
                 snapshot_id=env["ATLAS_DISCOVERY_SNAPSHOT_ID"],
                 price_version=env["ATLAS_PRICE_TABLE_VERSION"],
-                inference_endpoint=env["HARNESS_INFERENCE_BASE_URL"],
-                model_id=env["HARNESS_INFERENCE_MODEL"],
-                model_api_key=env["HARNESS_INFERENCE_API_KEY"],
-                input_usd_per_million=Decimal(env["ATLAS_PRICE_INPUT_USD_PER_MILLION"]),
-                output_usd_per_million=Decimal(env["ATLAS_PRICE_OUTPUT_USD_PER_MILLION"]),
+                inference_endpoint="https://api.openai.com/v1",
+                model_id=str(policy.document["model"]),
+                model_api_key=env["ATLAS_DD_DEV_OPENAI_API_KEY"],
+                model_fingerprint=policy.fingerprint,
+                input_usd_per_million=Decimal(
+                    price_table.document["short_context_usd_per_million"]["input"]
+                ),
+                output_usd_per_million=Decimal(
+                    price_table.document["short_context_usd_per_million"]["output"]
+                ),
                 snowflake_account=env["SNOWFLAKE_ACCOUNT"],
                 snowflake_user=env["SNOWFLAKE_USER"],
                 snowflake_role=env["SNOWFLAKE_ROLE"],
@@ -178,7 +197,6 @@ def build_hosted_graph(
     config: HostedConfig,
     *,
     raw_connect: Callable[[HostedConfig], Any] = _snowflake_connect,
-    model_transport: Any = None,
 ) -> Any:
     """Wire real sequential nodes; verify Snowflake identity before every operation."""
     price = ReviewedModelPrice(
@@ -187,15 +205,13 @@ def build_hosted_graph(
         config.input_usd_per_million,
         config.output_usd_per_million,
     )
-    planner_options: dict[str, Any] = {}
-    if model_transport is not None:
-        planner_options["transport"] = model_transport
-    planner = BoundedModelPlanner(
+    planner = OpenAIResponsesPlanner(
         config.inference_endpoint,
         config.model_id,
         config.model_api_key,
         price,
-        **planner_options,
+        policy=ModelPolicy.luna_low_v1(),
+        price_table=LunaPriceTable.standard_v1(),
     )
 
     def verified_connect() -> _VerifiedLease:
@@ -242,6 +258,7 @@ def build_hosted_graph(
             approved_price_table_version=config.price_version,
             required_profile=config.profile,
             expected_model_id=config.model_id,
-            expected_model_provider="DIGITALOCEAN_HARNESS_INFERENCE",
+            expected_model_provider="OPENAI",
+            expected_model_fingerprint=config.model_fingerprint,
         )
     )
