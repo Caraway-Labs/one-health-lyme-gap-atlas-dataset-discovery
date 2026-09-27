@@ -56,6 +56,24 @@ class ModelUsage(StrictModel):
     estimated_spend_cents: int = Field(default=0, ge=0)
 
 
+class InvalidModelResponse(ValueError):
+    """Provider billed tokens, but the semantic response cannot be accepted."""
+
+    def __init__(
+        self, usage: ModelUsage, reason: str = "model response failed strict content validation"
+    ) -> None:
+        super().__init__(reason)
+        self.usage = usage
+
+
+class UnmeteredModelResponse(RuntimeError):
+    """A provider response without trustworthy usage cannot continue the run."""
+
+    def __init__(self, usage: ModelUsage | None = None) -> None:
+        super().__init__("model usage or identity is unavailable")
+        self.usage = usage
+
+
 @dataclass(frozen=True)
 class PlannerResult[T]:
     value: T
@@ -166,15 +184,21 @@ class ValidatedCandidatePlanner:
         result = proposed.value
         allowed = {Relationship.UNKNOWN, Relationship.DISTINCT, Relationship.COMPLEMENTARY}
         if result.relationship not in allowed:
-            raise ValueError("semantic model cannot assert an exact or governed relationship")
+            raise InvalidModelResponse(
+                proposed.usage, "semantic model cannot assert an exact or governed relationship"
+            )
         available = {item.reference.observation_id for item in observations}
         if not set(result.supporting_observation_ids).issubset(available):
-            raise ValueError("semantic relationship cites unavailable observation")
+            raise InvalidModelResponse(
+                proposed.usage, "semantic relationship cites unavailable observation"
+            )
         if (
             result.relationship == Relationship.COMPLEMENTARY
             and not result.supporting_observation_ids
         ):
-            raise ValueError("complementary relationship needs cited evidence")
+            raise InvalidModelResponse(
+                proposed.usage, "complementary relationship needs cited evidence"
+            )
         safe = RelationshipResult(
             relationship=result.relationship,
             basis="SEMANTIC_INFERENCE",
@@ -191,10 +215,13 @@ class ValidatedCandidatePlanner:
     ) -> PlannerResult[tuple[CandidateAnalysis, RankingDimensions]]:
         proposed = self.semantic.classify(candidate, observations, allowance=allowance)
         analysis, dimensions = proposed.value
-        if analysis.identity != candidate.identity:
-            raise ValueError("semantic analysis changed canonical candidate identity")
-        validate_analysis(analysis, available_evidence=observations)
-        validate_dimension_evidence(analysis, dimensions)
+        try:
+            if analysis.identity != candidate.identity:
+                raise ValueError("semantic analysis changed canonical candidate identity")
+            validate_analysis(analysis, available_evidence=observations)
+            validate_dimension_evidence(analysis, dimensions)
+        except ValueError as error:
+            raise InvalidModelResponse(proposed.usage, str(error)) from None
         return proposed
 
     def rationale(
@@ -205,10 +232,13 @@ class ValidatedCandidatePlanner:
         allowance: ModelAllowance,
     ) -> PlannerResult[tuple[RationaleClaim, ...]]:
         proposed = self.semantic.rationale(analysis, observations, allowance=allowance)
-        validate_analysis(
-            analysis.model_copy(update={"rationale_claims": proposed.value}),
-            available_evidence=observations,
-        )
+        try:
+            validate_analysis(
+                analysis.model_copy(update={"rationale_claims": proposed.value}),
+                available_evidence=observations,
+            )
+        except ValueError as error:
+            raise InvalidModelResponse(proposed.usage, str(error)) from None
         return proposed
 
     def proposals(
@@ -219,8 +249,11 @@ class ValidatedCandidatePlanner:
         allowance: ModelAllowance,
     ) -> PlannerResult[tuple[SearchExpansionProposal, ...]]:
         proposed = self.semantic.proposals(analysis, observations, allowance=allowance)
-        validate_analysis(
-            analysis.model_copy(update={"search_expansion_proposals": proposed.value}),
-            available_evidence=observations,
-        )
+        try:
+            validate_analysis(
+                analysis.model_copy(update={"search_expansion_proposals": proposed.value}),
+                available_evidence=observations,
+            )
+        except ValueError as error:
+            raise InvalidModelResponse(proposed.usage, str(error)) from None
         return proposed

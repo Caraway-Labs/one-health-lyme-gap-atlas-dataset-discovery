@@ -52,7 +52,9 @@ from .budgets import (
 from .planner import (
     CandidatePlanner,
     ModelAllowance,
+    ModelUsage,
     PlannerResult,
+    UnmeteredModelResponse,
     ValidatedCandidatePlanner,
 )
 from .state import STATE_VERSION, DatasetDiscoveryState, clear_candidate_state
@@ -83,6 +85,15 @@ class RetryExhausted(RuntimeError):
     """Carry charged attempts when a transient call has no successful result."""
 
     def __init__(self, cause: ConnectionError | TimeoutError, usage: BudgetUsage) -> None:
+        super().__init__(type(cause).__name__)
+        self.cause = cause
+        self.usage = usage
+
+
+class ChargedCallFailure(RuntimeError):
+    """Retain attempt and known billed usage when a nontransient call fails."""
+
+    def __init__(self, cause: Exception, usage: BudgetUsage) -> None:
         super().__init__(type(cause).__name__)
         self.cause = cause
         self.usage = usage
@@ -153,6 +164,21 @@ def _bounded_call[ResultT](
             if attempt == retries:
                 raise RetryExhausted(error, current) from error
             sleep(min(0.25 * 2**attempt, 2.0))
+        except BudgetExceeded:
+            raise
+        except Exception as error:
+            reported = getattr(error, "usage", None)
+            if dimension == "model_calls" and isinstance(reported, ModelUsage):
+                current = current.model_copy(
+                    update={
+                        "input_tokens": current.input_tokens + reported.input_tokens,
+                        "output_tokens": current.output_tokens + reported.output_tokens,
+                        "estimated_spend_cents": (
+                            current.estimated_spend_cents + reported.estimated_spend_cents
+                        ),
+                    }
+                )
+            raise ChargedCallFailure(error, current) from error
     raise AssertionError("bounded retry loop unexpectedly exhausted")
 
 
@@ -719,14 +745,33 @@ def build_graph(deps: GraphDependencies) -> Any:
                     "remaining_run_budget": remaining_budget(measured_usage, state["limits"]),
                 }
             except Exception as error:
-                cause = error.cause if isinstance(error, RetryExhausted) else error
+                cause = (
+                    error.cause
+                    if isinstance(error, (RetryExhausted, ChargedCallFailure))
+                    else error
+                )
                 code = f"{name}:{type(cause).__name__}"
                 bounded_errors = (*state.get("bounded_errors", ()), code)[-10:]
-                systemic = isinstance(cause, PolicyViolation) or (
+                systemic = isinstance(cause, (PolicyViolation, UnmeteredModelResponse)) or (
                     name == "assess_evidence_sufficiency"
                     and isinstance(cause, (ConnectionError, TimeoutError))
                 )
-                charged_usage = error.usage if isinstance(error, RetryExhausted) else state["usage"]
+                charged_usage = (
+                    error.usage
+                    if isinstance(error, (RetryExhausted, ChargedCallFailure))
+                    else state["usage"]
+                )
+                if any(
+                    getattr(charged_usage, dimension) > getattr(state["limits"], dimension)
+                    for dimension in BudgetUsage.model_fields
+                ):
+                    return {
+                        "stop_reason": "REPORTED_USAGE_EXCEEDED",
+                        "final_status": "BUDGET_STOPPED",
+                        "bounded_errors": bounded_errors,
+                        "usage": charged_usage,
+                        "remaining_run_budget": remaining_budget(charged_usage, state["limits"]),
+                    }
                 if name in candidate_analysis_nodes and not systemic:
                     return {
                         "candidate_outcome_reason": "CANDIDATE_ANALYSIS_ERROR",

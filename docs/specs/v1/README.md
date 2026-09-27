@@ -100,3 +100,8 @@ input allowance and reviewed maximum output cost; reported usage is returned
 even when a provider exceeds its allowance so the graph can record measured
 tokens and stop the run. It rounds estimated spend up to whole cents for budget
 enforcement. Provider error bodies, prompt contents, and secrets are not logged.
+If the provider reports usage but its content or citations fail validation, the
+attempt and reported tokens/spend are retained before recording a candidate
+outcome. A response without trustworthy usage or with a different model ID
+stops the run, because the reviewed price cannot be applied. Reported usage
+above the remaining allowance produces `BUDGET_STOPPED` with measured counters.

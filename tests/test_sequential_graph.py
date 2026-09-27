@@ -38,8 +38,10 @@ from lyme_gap_atlas_dataset_discovery.graph.budgets import PROFILE_DEFAULTS, Run
 from lyme_gap_atlas_dataset_discovery.graph.planner import (
     FakeCandidatePlanner,
     FixturePlan,
+    InvalidModelResponse,
     ModelUsage,
     PlannerResult,
+    UnmeteredModelResponse,
 )
 from lyme_gap_atlas_dataset_discovery.graph.sequential import (
     GraphDependencies,
@@ -648,3 +650,92 @@ def test_reported_model_usage_is_charged_and_overspend_stops_before_write() -> N
     assert stopped["final_status"] == "BUDGET_STOPPED"
     assert stopped["usage"].estimated_spend_cents == 3
     assert fixture_repository.recommendations == {}
+
+
+def test_invalid_model_content_charges_reported_usage_and_continues() -> None:
+    bad, bad_observations, bad_plan = fixture("bad")
+    good, good_observations, good_plan = fixture("good")
+
+    class InvalidThenValidPlanner(FakeCandidatePlanner):
+        def relationship(self, candidate, observations, *, allowance):  # type: ignore[no-untyped-def]
+            if candidate.identity.resource_key == "bad":
+                raise InvalidModelResponse(
+                    ModelUsage(input_tokens=100, output_tokens=20, estimated_spend_cents=3)
+                )
+            return super().relationship(candidate, observations, allowance=allowance)
+
+    reader = FakeCandidateReader(
+        candidates=(bad, good),
+        observations={"bad": bad_observations, "good": good_observations},
+    )
+    repository = FakeRecommendationRepository()
+    graph = build_graph(
+        GraphDependencies(
+            reader=reader,
+            repository=repository,
+            planner=InvalidThenValidPlanner({"bad": bad_plan, "good": good_plan}),
+            context_reader=fixture_context(),
+        )
+    )
+    state = input_state()
+    state["profile"] = RunProfile.DEV_MANUAL
+    state["limits"] = PROFILE_DEFAULTS[RunProfile.DEV_MANUAL]
+    result = graph.invoke(state, config={"recursion_limit": 100})
+    assert result["final_status"] == "SUCCEEDED_WITH_RECOMMENDATIONS"
+    assert result["usage"].input_tokens == 100
+    assert result["usage"].output_tokens == 20
+    assert result["usage"].estimated_spend_cents == 3
+    assert result["usage"].model_calls == 5
+    assert repository.outcomes["outcome:run-1:bad"].reason_code == "CANDIDATE_ANALYSIS_ERROR"
+    assert len(repository.recommendations) == 1
+
+
+def test_unmetered_model_response_fails_run_without_recommendation() -> None:
+    candidate, observations, plan = fixture("candidate")
+
+    class UnmeteredPlanner(FakeCandidatePlanner):
+        def relationship(self, candidate, observations, *, allowance):  # type: ignore[no-untyped-def]
+            raise UnmeteredModelResponse()
+
+    repository = FakeRecommendationRepository()
+    graph = build_graph(
+        GraphDependencies(
+            reader=FakeCandidateReader(
+                candidates=(candidate,), observations={"candidate": observations}
+            ),
+            repository=repository,
+            planner=UnmeteredPlanner({"candidate": plan}),
+        )
+    )
+    result = graph.invoke(input_state(), config={"recursion_limit": 100})
+    assert result["final_status"] == "FAILED"
+    assert result["stop_reason"] == "analyze_candidate_relationship:UnmeteredModelResponse"
+    assert result["usage"].model_calls == 1
+    assert not repository.recommendations
+
+
+def test_invalid_model_response_over_budget_stops_with_measured_spend() -> None:
+    candidate, observations, plan = fixture("candidate")
+
+    class CostlyInvalidPlanner(FakeCandidatePlanner):
+        def relationship(self, candidate, observations, *, allowance):  # type: ignore[no-untyped-def]
+            raise InvalidModelResponse(
+                ModelUsage(input_tokens=100, output_tokens=20, estimated_spend_cents=3)
+            )
+
+    repository = FakeRecommendationRepository()
+    graph = build_graph(
+        GraphDependencies(
+            reader=FakeCandidateReader(
+                candidates=(candidate,), observations={"candidate": observations}
+            ),
+            repository=repository,
+            planner=CostlyInvalidPlanner({"candidate": plan}),
+        )
+    )
+    result = graph.invoke(input_state(), config={"recursion_limit": 100})
+    assert result["final_status"] == "BUDGET_STOPPED"
+    assert result["stop_reason"] == "REPORTED_USAGE_EXCEEDED"
+    assert result["usage"].estimated_spend_cents == 3
+    assert repository.finalizations["run-1"].budget_usage["estimated_spend_cents"] == 3
+    assert not repository.recommendations

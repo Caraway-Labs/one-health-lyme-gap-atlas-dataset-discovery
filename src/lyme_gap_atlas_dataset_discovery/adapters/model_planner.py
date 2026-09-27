@@ -27,9 +27,11 @@ from lyme_gap_atlas_dataset_discovery.domain.ranking import RankingDimensions
 from lyme_gap_atlas_dataset_discovery.domain.relationships import RelationshipResult
 from lyme_gap_atlas_dataset_discovery.graph.budgets import BudgetExceeded
 from lyme_gap_atlas_dataset_discovery.graph.planner import (
+    InvalidModelResponse,
     ModelAllowance,
     ModelUsage,
     PlannerResult,
+    UnmeteredModelResponse,
 )
 
 PROMPT_VERSION = "dataset-discovery-semantic-v1"
@@ -171,6 +173,25 @@ class BoundedModelPlanner:
             endpoint += "/chat/completions"
         response = self.transport(endpoint, self.api_key, payload, self.timeout_seconds)
         try:
+            usage = response["usage"]
+            input_tokens = usage["prompt_tokens"]
+            output_tokens = usage["completion_tokens"]
+            if type(input_tokens) is not int or input_tokens <= 0:
+                raise ValueError("invalid input usage")
+            if type(output_tokens) is not int or output_tokens <= 0:
+                raise ValueError("invalid output usage")
+        except (KeyError, TypeError, ValueError):
+            raise UnmeteredModelResponse() from None
+        if response.get("model") != self.model_id:
+            raise UnmeteredModelResponse(
+                ModelUsage(input_tokens=input_tokens, output_tokens=output_tokens)
+            )
+        measured = ModelUsage(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            estimated_spend_cents=self.price.charge_cents(input_tokens, output_tokens),
+        )
+        try:
             choice = response["choices"]
             if not isinstance(choice, list) or len(choice) != 1:
                 raise ValueError("invalid choice count")
@@ -183,25 +204,11 @@ class BoundedModelPlanner:
             parsed = json.loads(answer)
             if not isinstance(parsed, dict):
                 raise ValueError("invalid content type")
-            usage = response["usage"]
-            input_tokens = usage["prompt_tokens"]
-            output_tokens = usage["completion_tokens"]
-            if type(input_tokens) is not int or input_tokens <= 0:
-                raise ValueError("invalid input usage")
-            if type(output_tokens) is not int or output_tokens <= 0:
-                raise ValueError("invalid output usage")
-            if response.get("model") != self.model_id:
-                raise ValueError("wrong model")
         except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError):
-            raise ValueError("model response failed strict content or usage validation") from None
-        charge = self.price.charge_cents(input_tokens, output_tokens)
+            raise InvalidModelResponse(measured) from None
         # Return measured usage even when the provider broke its allowance.
         # The graph charges it and records BUDGET_STOPPED, rather than losing cost.
-        return parsed, ModelUsage(
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            estimated_spend_cents=charge,
-        )
+        return parsed, measured
 
     @staticmethod
     def _observations(observations: tuple[AvailableObservation, ...]) -> list[dict[str, Any]]:
@@ -224,7 +231,11 @@ class BoundedModelPlanner:
             },
             allowance,
         )
-        return PlannerResult(RelationshipResult.model_validate(answer), usage)
+        try:
+            result = RelationshipResult.model_validate(answer)
+        except ValueError:
+            raise InvalidModelResponse(usage) from None
+        return PlannerResult(result, usage)
 
     def classify(
         self,
@@ -244,14 +255,15 @@ class BoundedModelPlanner:
             allowance,
         )
         if set(answer) != {"analysis", "dimensions"}:
-            raise ValueError("model classification shape mismatch")
-        return PlannerResult(
-            (
+            raise InvalidModelResponse(usage)
+        try:
+            result = (
                 CandidateAnalysis.model_validate(answer["analysis"]),
                 RankingDimensions.model_validate(answer["dimensions"]),
-            ),
-            usage,
-        )
+            )
+        except (KeyError, ValueError):
+            raise InvalidModelResponse(usage) from None
+        return PlannerResult(result, usage)
 
     def rationale(
         self,
@@ -270,10 +282,12 @@ class BoundedModelPlanner:
             allowance,
         )
         if set(answer) != {"claims"}:
-            raise ValueError("model rationale shape mismatch")
-        return PlannerResult(
-            TypeAdapter(tuple[RationaleClaim, ...]).validate_python(answer["claims"]), usage
-        )
+            raise InvalidModelResponse(usage)
+        try:
+            result = TypeAdapter(tuple[RationaleClaim, ...]).validate_python(answer["claims"])
+        except (KeyError, ValueError):
+            raise InvalidModelResponse(usage) from None
+        return PlannerResult(result, usage)
 
     def proposals(
         self,
@@ -292,10 +306,13 @@ class BoundedModelPlanner:
             allowance,
         )
         if set(answer) != {"proposals"}:
-            raise ValueError("model proposals shape mismatch")
-        result = TypeAdapter(tuple[SearchExpansionProposal, ...]).validate_python(
-            answer["proposals"]
-        )
+            raise InvalidModelResponse(usage)
+        try:
+            result = TypeAdapter(tuple[SearchExpansionProposal, ...]).validate_python(
+                answer["proposals"]
+            )
+        except (KeyError, ValueError):
+            raise InvalidModelResponse(usage) from None
         if len(result) > 10:
-            raise ValueError("model proposed too many search terms")
+            raise InvalidModelResponse(usage)
         return PlannerResult(result, usage)

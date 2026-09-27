@@ -16,7 +16,12 @@ from lyme_gap_atlas_dataset_discovery.domain.models import (
     CandidateSummary,
     EvidenceRef,
 )
-from lyme_gap_atlas_dataset_discovery.graph.planner import ModelAllowance, ValidatedCandidatePlanner
+from lyme_gap_atlas_dataset_discovery.graph.planner import (
+    InvalidModelResponse,
+    ModelAllowance,
+    UnmeteredModelResponse,
+    ValidatedCandidatePlanner,
+)
 
 
 def fixture() -> tuple[CandidateSummary, tuple[AvailableObservation, ...]]:
@@ -118,8 +123,24 @@ def test_usage_and_model_identity_fail_closed() -> None:
             PRICE,
             lambda *_args, result=bad: result,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(UnmeteredModelResponse):
             planner.relationship(candidate, observations, allowance=ALLOWANCE)
+
+
+def test_malformed_content_retains_reported_usage() -> None:
+    candidate, observations = fixture()
+    planner = BoundedModelPlanner(
+        "https://model.example/v1",
+        "model-1",
+        "secret",
+        PRICE,
+        lambda *_args: response({"relationship": "UNKNOWN", "unexpected": "field"}),
+    )
+    with pytest.raises(InvalidModelResponse) as failure:
+        planner.relationship(candidate, observations, allowance=ALLOWANCE)
+    assert failure.value.usage.input_tokens == 100
+    assert failure.value.usage.output_tokens == 20
+    assert failure.value.usage.estimated_spend_cents == 1
 
 
 def test_preflight_budget_prevents_call_and_reported_overage_is_retained() -> None:
