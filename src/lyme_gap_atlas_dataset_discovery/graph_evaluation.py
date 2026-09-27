@@ -2,7 +2,7 @@
 
 import json
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -21,11 +21,18 @@ from lyme_gap_atlas_dataset_discovery.domain.analysis import (
 )
 from lyme_gap_atlas_dataset_discovery.domain.models import (
     CandidateIdentity,
+    CandidateOutcomeReceipt,
+    CandidatePage,
     CandidateSummary,
     EvidenceRef,
     ObservedFact,
+    RecommendationWriteReceipt,
+    RunCreateMetadata,
+    RunFinalizationReceipt,
+    RunReceipt,
     StrictModel,
 )
+from lyme_gap_atlas_dataset_discovery.domain.persistence import RecommendationWrite
 from lyme_gap_atlas_dataset_discovery.domain.ranking import (
     Dimension,
     RankingDimensions,
@@ -64,6 +71,12 @@ class TrajectoryCase(StrictModel):
     model_calls: int = Field(ge=0)
     tool_calls: int = Field(ge=0)
     replay: bool = False
+    reader_fault: Literal["NONE", "EVIDENCE_ONCE", "EVIDENCE_ALWAYS", "BATCH_ALWAYS"] = "NONE"
+    planner_fault: Literal["NONE", "RELATIONSHIP_ONCE", "RELATIONSHIP_ALWAYS"] = "NONE"
+    lost_ack: tuple[Literal["RUN", "OUTCOME", "RECOMMENDATION", "FINALIZATION"], ...] = ()
+    retries: int = Field(default=0, ge=0, le=2)
+    cancelled: bool = False
+    stop_reason: str | None = None
 
 
 class TrajectoryCorpus(StrictModel):
@@ -74,6 +87,8 @@ class TrajectoryCorpus(StrictModel):
 @dataclass
 class ScenarioPlanner(FakeCandidatePlanner):
     behaviors: dict[str, str]
+    fault: str = "NONE"
+    relationship_attempts: int = 0
 
     def relationship(
         self,
@@ -82,12 +97,81 @@ class ScenarioPlanner(FakeCandidatePlanner):
         *,
         allowance: ModelAllowance,
     ) -> PlannerResult[RelationshipResult]:
+        self.relationship_attempts += 1
+        if self.fault == "RELATIONSHIP_ALWAYS" or (
+            self.fault == "RELATIONSHIP_ONCE" and self.relationship_attempts == 1
+        ):
+            raise TimeoutError("synthetic model transport outage")
         behavior = self.behaviors.get(candidate.identity.resource_key)
         if behavior == "INVALID":
             raise InvalidModelResponse(ModelUsage(input_tokens=1, output_tokens=1))
         if behavior == "UNMETERED":
             raise UnmeteredModelResponse()
         return super().relationship(candidate, observations, allowance=allowance)
+
+
+@dataclass
+class ScenarioReader(FakeCandidateReader):
+    fault: str = "NONE"
+    evidence_attempts: int = 0
+
+    def list_batch(self, *, cursor: str | None, limit: int) -> CandidatePage:
+        if self.fault == "BATCH_ALWAYS":
+            raise ConnectionError("synthetic batch outage")
+        return super().list_batch(cursor=cursor, limit=limit)
+
+    def get_observations(
+        self, candidate_id: str, *, limit: int
+    ) -> tuple[AvailableObservation, ...]:
+        self.evidence_attempts += 1
+        if self.fault == "EVIDENCE_ALWAYS" or (
+            self.fault == "EVIDENCE_ONCE" and self.evidence_attempts == 1
+        ):
+            raise TimeoutError("synthetic evidence outage")
+        return super().get_observations(candidate_id, limit=limit)
+
+
+@dataclass
+class ScenarioRepository(FakeRecommendationRepository):
+    lose_ack_for: tuple[str, ...] = ()
+    lost: set[str] = field(default_factory=set)
+
+    def _ack(self, operation: str) -> None:
+        if operation in self.lose_ack_for and operation not in self.lost:
+            self.lost.add(operation)
+            raise TimeoutError("synthetic acknowledgment loss after commit")
+
+    def create_run(
+        self,
+        *,
+        operation_key: str,
+        run_id: str,
+        metadata: RunCreateMetadata | None = None,
+        retry_of_run_id: str | None = None,
+    ) -> RunReceipt:
+        receipt = super().create_run(
+            operation_key=operation_key,
+            run_id=run_id,
+            metadata=metadata,
+            retry_of_run_id=retry_of_run_id,
+        )
+        self._ack("RUN")
+        return receipt
+
+    def record_candidate_outcome(self, receipt: CandidateOutcomeReceipt) -> CandidateOutcomeReceipt:
+        committed = super().record_candidate_outcome(receipt)
+        self._ack("OUTCOME")
+        return committed
+
+    def save_recommendation(self, request: RecommendationWrite) -> RecommendationWriteReceipt:
+        receipt = super().save_recommendation(request)
+        self._ack("RECOMMENDATION")
+        return receipt
+
+    def finalize_run(self, receipt: RunFinalizationReceipt) -> RunFinalizationReceipt:
+        committed = super().finalize_run(receipt)
+        self._ack("FINALIZATION")
+        return committed
 
 
 def _candidate(
@@ -156,15 +240,17 @@ def evaluate_case(case: TrajectoryCase) -> dict[str, object]:
     if len({item.id for item in case.candidates}) != len(case.candidates):
         raise ValueError("scenario candidate IDs must be unique")
     prepared = {item.id: _candidate(item) for item in case.candidates}
-    reader = FakeCandidateReader(
+    reader = ScenarioReader(
         candidates=tuple(prepared[item.id][0] for item in case.candidates),
         observations={key: value[1] for key, value in prepared.items()},
         governed_statuses={item.id: item.governed_status for item in case.candidates},
+        fault=case.reader_fault,
     )
-    repository = FakeRecommendationRepository()
+    repository = ScenarioRepository(lose_ack_for=case.lost_ack)
     planner = ScenarioPlanner(
         plans={key: value[2] for key, value in prepared.items()},
         behaviors={item.id: item.planner for item in case.candidates},
+        fault=case.planner_fault,
     )
     graph = build_graph(
         GraphDependencies(
@@ -172,11 +258,17 @@ def evaluate_case(case: TrajectoryCase) -> dict[str, object]:
             repository=repository,
             planner=planner,
             clock=lambda: datetime(2026, 9, 26, tzinfo=UTC),
+            cancellation_requested=lambda: case.cancelled,
+            sleep=lambda _: None,
         )
     )
     limits = PROFILE_DEFAULTS[RunProfile.FIXTURE]
-    if case.candidate_limit is not None:
-        limits = limits.model_copy(update={"candidates": case.candidate_limit})
+    limits = limits.model_copy(
+        update={
+            "candidates": case.candidate_limit or limits.candidates,
+            "retries_per_operation": case.retries,
+        }
+    )
     initial: dict[str, Any] = {
         "execution_key": f"trajectory:{case.id}",
         "requested_run_id": f"run:{case.id}",
@@ -229,6 +321,8 @@ def evaluate_case(case: TrajectoryCase) -> dict[str, object]:
             finalization.recommendation_count if finalization else None,
             case.recommendations,
         ),
+        "stop_reason": (state.get("stop_reason"), case.stop_reason),
+        "lost_ack_reconciled": (tuple(sorted(repository.lost)), tuple(sorted(case.lost_ack))),
     }
     errors.extend(key for key, (actual, expected) in checks.items() if actual != expected)
     if forbidden.intersection(nodes):
