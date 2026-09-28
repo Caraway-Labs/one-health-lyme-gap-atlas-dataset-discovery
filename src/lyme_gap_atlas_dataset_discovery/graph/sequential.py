@@ -804,6 +804,12 @@ def build_graph(deps: GraphDependencies) -> Any:
             ),
             validation_stage=diagnostic.validation_stage if diagnostic else None,
             validation_error_code=diagnostic.validation_error_code if diagnostic else None,
+            provider_response_status=diagnostic.provider_response_status if diagnostic else None,
+            provider_incomplete_reason=diagnostic.provider_incomplete_reason
+            if diagnostic
+            else None,
+            provider_error_code=diagnostic.provider_error_code if diagnostic else None,
+            provider_response_id_hash=diagnostic.provider_response_id_hash if diagnostic else None,
             validation_field=diagnostic.validation_field if diagnostic else None,
             validator_name=diagnostic.validator_name if diagnostic else None,
             validator_version=diagnostic.validator_version if diagnostic else None,

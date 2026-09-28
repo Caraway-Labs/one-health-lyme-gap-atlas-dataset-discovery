@@ -166,6 +166,14 @@ class CandidateDecisionRecord(StrictModel):
     token_usage: DecisionTokenUsage | None = None
     response_schema_version: str | None = Field(default=None, max_length=120)
     response_fingerprint: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")
+    provider_response_status: str | None = Field(
+        default=None, pattern="^(COMPLETED|FAILED|IN_PROGRESS|CANCELLED|QUEUED|INCOMPLETE|UNKNOWN)$"
+    )
+    provider_incomplete_reason: str | None = Field(
+        default=None, pattern="^(MAX_OUTPUT_TOKENS|CONTENT_FILTER|UNKNOWN)$"
+    )
+    provider_error_code: str | None = Field(default=None, pattern="^[A-Z][A-Z0-9_]{0,79}$")
+    provider_response_id_hash: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")
     classification: str | None = Field(default=None, max_length=80)
     relationship: str | None = Field(default=None, max_length=80)
     relationship_basis: str | None = Field(default=None, max_length=80)

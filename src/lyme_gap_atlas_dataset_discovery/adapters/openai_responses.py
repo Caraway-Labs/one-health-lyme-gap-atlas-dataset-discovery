@@ -98,6 +98,68 @@ _TASK_TYPES = {
     "propose at most ten inactive": "PROPOSALS",
 }
 
+_RESPONSE_STATUSES = frozenset(
+    {"completed", "failed", "in_progress", "cancelled", "queued", "incomplete"}
+)
+_INCOMPLETE_REASONS = frozenset({"max_output_tokens", "content_filter"})
+_PROVIDER_ERROR_CODES = frozenset(
+    {
+        "server_error",
+        "rate_limit_exceeded",
+        "invalid_prompt",
+        "data_residency_mismatch",
+        "bio_policy",
+        "vector_store_timeout",
+        "invalid_image",
+        "invalid_image_format",
+        "invalid_base64_image",
+        "invalid_image_url",
+        "image_too_large",
+        "image_too_small",
+        "image_parse_error",
+        "image_content_policy_violation",
+        "invalid_image_mode",
+        "image_file_too_large",
+        "unsupported_image_media_type",
+        "empty_image_file",
+        "failed_to_download_image",
+        "image_file_not_found",
+    }
+)
+
+
+def _safe_completion_diagnostic(response: Any, diagnostic: ModelDiagnostic) -> ModelDiagnostic:
+    """Project only SDK-enumerated completion facts; never retain provider text."""
+    status = getattr(response, "status", None)
+    reason = getattr(getattr(response, "incomplete_details", None), "reason", None)
+    code = getattr(getattr(response, "error", None), "code", None)
+    response_id = getattr(response, "id", None)
+    return dataclasses.replace(
+        diagnostic,
+        provider_response_status=(
+            status.upper()
+            if isinstance(status, str) and status in _RESPONSE_STATUSES
+            else "UNKNOWN"
+        ),
+        provider_incomplete_reason=(
+            (
+                reason.upper()
+                if isinstance(reason, str) and reason in _INCOMPLETE_REASONS
+                else "UNKNOWN"
+            )
+            if status == "incomplete"
+            else None
+        ),
+        provider_error_code=(
+            code.upper() if isinstance(code, str) and code in _PROVIDER_ERROR_CODES else None
+        ),
+        provider_response_id_hash=(
+            hashlib.sha256(response_id.encode("utf-8")).hexdigest()
+            if isinstance(response_id, str) and 0 < len(response_id) <= 200
+            else None
+        ),
+    )
+
 
 def _safe_schema_error(error: ValidationError) -> tuple[str, str | None]:
     """Use Pydantic error types and paths only, never error input or message."""
@@ -227,7 +289,9 @@ class OpenAIResponsesPlanner(BoundedModelPlanner):
             ) from None
         finally:
             client.close()
-        diagnostic = dataclasses.replace(diagnostic, model_call_succeeded_transport=True)
+        diagnostic = _safe_completion_diagnostic(
+            response, dataclasses.replace(diagnostic, model_call_succeeded_transport=True)
+        )
         usage = response.usage
         if (
             usage is None

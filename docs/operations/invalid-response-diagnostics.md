@@ -40,3 +40,13 @@ true and a validator code. Retry attempts are included in run budget counters;
 the outcome record describes the final attempt. V121 changes only the existing
 candidate-outcome procedure's safe allowlist and checks. The outcome and audit
 still commit together under the same operation key and serialized transaction.
+
+The installed OpenAI SDK 2.54.0 exposes response status (`completed`, `failed`,
+`in_progress`, `cancelled`, `queued`, `incomplete`), optional incomplete reason
+(`max_output_tokens`, `content_filter`), optional enumerated error code, ID,
+and usage. The adapter now keeps only allowlisted uppercase status/reason/code
+and a SHA-256 response ID hash in the decision audit. An incomplete response
+without an SDK reason records `UNKNOWN`, which is not a token-limit finding.
+The provider's error message, response body, prompt, and reasoning are never
+retained. V122 extends the existing DEV procedure allowlist and preserves the
+same atomic receipt; it adds no column or provider-specific authority.

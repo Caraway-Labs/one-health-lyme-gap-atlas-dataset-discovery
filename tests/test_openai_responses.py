@@ -95,9 +95,61 @@ def test_responses_parse_is_tool_free_and_usage_is_metered(
     assert result["relationship"] == "UNKNOWN"
     assert (usage.input_tokens, usage.cached_input_tokens, usage.output_tokens) == (300, 100, 80)
     assert usage.reasoning_tokens == 20
+    assert usage.diagnostic is not None
+    assert usage.diagnostic.provider_response_status == "COMPLETED"
+    assert usage.diagnostic.provider_incomplete_reason is None
     assert usage.estimated_spend_cents == 1
     assert captured["closed"] is True
     assert "synthetic-test-secret" not in repr(planner())
+
+
+@pytest.mark.parametrize(
+    "reason,expected", [("max_output_tokens", "MAX_OUTPUT_TOKENS"), (None, "UNKNOWN")]
+)
+def test_incomplete_response_keeps_only_bounded_provider_facts(
+    monkeypatch: pytest.MonkeyPatch, reason: str | None, expected: str
+) -> None:
+    raw = "private prompt hidden reasoning raw response Authorization bearer synthetic-test-secret"
+
+    class Client:
+        def __init__(self, **_kwargs: Any) -> None:
+            self.responses = self
+
+        def create(self, **_kwargs: Any) -> Any:
+            return SimpleNamespace(
+                model="gpt-6-luna",
+                status="incomplete",
+                id="resp_sensitive_id",
+                incomplete_details=SimpleNamespace(reason=reason),
+                error=SimpleNamespace(code=None, message=raw),
+                output_text=raw,
+                output=[raw],
+                usage=SimpleNamespace(
+                    input_tokens=1934,
+                    output_tokens=2048,
+                    input_tokens_details=None,
+                    output_tokens_details=None,
+                ),
+            )
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr("lyme_gap_atlas_dataset_discovery.adapters.openai_responses.OpenAI", Client)
+    with pytest.raises(InvalidModelResponse) as failure:
+        planner()._invoke("classify candidate", "shape", {}, ALLOWANCE)
+    diagnostic = failure.value.diagnostic
+    assert diagnostic is not None
+    assert diagnostic.provider_response_status == "INCOMPLETE"
+    assert diagnostic.provider_incomplete_reason == expected
+    assert diagnostic.provider_error_code is None
+    assert len(diagnostic.provider_response_id_hash or "") == 64
+    assert diagnostic.structured_parse_succeeded is False
+    assert diagnostic.validation_stage == "PROVIDER_RESPONSE"
+    assert diagnostic.validation_error_code == "RESPONSE_NOT_COMPLETED"
+    assert raw not in repr(diagnostic)
+    assert "resp_sensitive_id" not in repr(diagnostic)
+    assert raw not in diagnostic.__dict__.values()
 
 
 @pytest.mark.parametrize("mode", ["unmetered", "wrong_model", "invalid_output"])
