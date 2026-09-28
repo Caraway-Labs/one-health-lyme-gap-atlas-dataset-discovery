@@ -42,6 +42,17 @@ class ModelPolicy:
         return cls._validated_luna_low(document)
 
     @classmethod
+    def luna_low_v2_4096(cls) -> "ModelPolicy":
+        """Reviewed single-candidate DEV experiment with the v2 prompt and 4096 output cap."""
+        document = _load("openai-gpt-6-luna-low-v2-4096.json")
+        previous = cls.luna_low_v2().document
+        if document.get("max_output_tokens_per_call") != 4096 or {
+            key: value for key, value in document.items() if key != "max_output_tokens_per_call"
+        } != {key: value for key, value in previous.items() if key != "max_output_tokens_per_call"}:
+            raise ValueError("4096 experiment differs beyond the reviewed output cap")
+        return cls._validated_luna_low(document)
+
+    @classmethod
     def _validated_luna_low(cls, document: dict[str, Any]) -> "ModelPolicy":
         expected = {
             "provider": "openai",

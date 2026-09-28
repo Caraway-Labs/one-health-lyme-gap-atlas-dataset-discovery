@@ -8,6 +8,7 @@ from test_hosted_graph import environment
 from lyme_gap_atlas_dataset_discovery import hosted_manual, hosted_shadow, observability
 from lyme_gap_atlas_dataset_discovery.graph.budgets import BudgetUsage
 from lyme_gap_atlas_dataset_discovery.graph.hosted import HostedConfig
+from lyme_gap_atlas_dataset_discovery.model_policy import ModelPolicy
 
 
 @pytest.mark.parametrize(
@@ -20,7 +21,10 @@ from lyme_gap_atlas_dataset_discovery.graph.hosted import HostedConfig
 def test_hosted_entrypoints_flush_after_success(
     monkeypatch: pytest.MonkeyPatch, module: object, profile: str, run_prefix: str
 ) -> None:
-    config = HostedConfig.from_environment({**environment(), "ATLAS_DISCOVERY_PROFILE": profile})
+    values = {**environment(), "ATLAS_DISCOVERY_PROFILE": profile}
+    if profile == "SHADOW":
+        values["ATLAS_MODEL_CONFIG_FINGERPRINT"] = ModelPolicy.luna_low_v2_4096().fingerprint
+    config = HostedConfig.from_environment(values)
     flushed: list[bool] = []
     monkeypatch.setattr(module.HostedConfig, "from_environment", lambda: config)
     monkeypatch.setattr(

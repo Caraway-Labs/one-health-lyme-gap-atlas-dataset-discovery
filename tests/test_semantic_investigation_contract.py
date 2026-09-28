@@ -106,6 +106,18 @@ def test_prompt_version_and_investigation_rubric() -> None:
     assert "INSUFFICIENT_EVIDENCE only when retained evidence cannot support" in task
 
 
+def test_4096_experiment_changes_only_the_model_output_cap() -> None:
+    baseline = ModelPolicy.luna_low_v2()
+    experiment = ModelPolicy.luna_low_v2_4096()
+    assert experiment.document["prompt_version"] == OPENAI_PROMPT_VERSION
+    assert experiment.document["max_output_tokens_per_call"] == 4096
+    assert baseline.document["max_output_tokens_per_call"] == 2048
+    assert {k: v for k, v in experiment.document.items() if k != "max_output_tokens_per_call"} == {
+        k: v for k, v in baseline.document.items() if k != "max_output_tokens_per_call"
+    }
+    assert experiment.fingerprint != baseline.fingerprint
+
+
 def test_direct_tick_dataset_can_be_low_priority_with_unknown_options() -> None:
     _, dimensions, candidate = _case(
         "Dataset of tickborne pathogen observations over several years", relevance=2

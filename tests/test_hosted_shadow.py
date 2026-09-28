@@ -8,9 +8,15 @@ from pathlib import Path
 import pytest
 from test_hosted_graph import environment
 
-from lyme_gap_atlas_dataset_discovery.graph.budgets import RunProfile
+from lyme_gap_atlas_dataset_discovery.graph.budgets import (
+    BudgetExceeded,
+    BudgetUsage,
+    RunProfile,
+    charge_budget,
+)
 from lyme_gap_atlas_dataset_discovery.graph.hosted import HostedConfig
 from lyme_gap_atlas_dataset_discovery.hosted_shadow import bounded_input
+from lyme_gap_atlas_dataset_discovery.model_policy import ModelPolicy
 
 SCRIPT = Path(__file__).resolve().parents[1] / "deploy/digitalocean/preflight.py"
 spec = importlib.util.spec_from_file_location("shadow_test_preflight", SCRIPT)
@@ -20,8 +26,16 @@ spec.loader.exec_module(preflight)
 TEMPLATE = SCRIPT.parent / "langgraph-shadow.template.json"
 
 
+def shadow_environment() -> dict[str, str]:
+    return {
+        **environment(),
+        "ATLAS_DISCOVERY_PROFILE": "SHADOW",
+        "ATLAS_MODEL_CONFIG_FINGERPRINT": ModelPolicy.luna_low_v2_4096().fingerprint,
+    }
+
+
 def test_shadow_input_is_three_candidate_manual_and_same_model() -> None:
-    config = HostedConfig.from_environment({**environment(), "ATLAS_DISCOVERY_PROFILE": "SHADOW"})
+    config = HostedConfig.from_environment(shadow_environment())
     state = bounded_input(
         config,
         run_id="dd-shadow-" + "1" * 32,
@@ -34,6 +48,10 @@ def test_shadow_input_is_three_candidate_manual_and_same_model() -> None:
     assert state["limits"].candidates == 3
     assert state["limits"].pages == 1
     assert state["limits"].candidate_concurrency == 1
+    assert state["limits"].output_tokens == 12_000
+    assert state["limits"].output_tokens < 3 * 4096
+    with pytest.raises(BudgetExceeded, match="output_tokens"):
+        charge_budget(BudgetUsage(output_tokens=10_000), state["limits"], output_tokens=4096)
     assert state["model_fingerprint"] == config.model_fingerprint
 
 
@@ -49,7 +67,7 @@ def test_shadow_refuses_manual_profile() -> None:
 
 
 def test_shadow_selected_candidates_are_bounded_and_part_of_run_identity() -> None:
-    config = HostedConfig.from_environment({**environment(), "ATLAS_DISCOVERY_PROFILE": "SHADOW"})
+    config = HostedConfig.from_environment(shadow_environment())
     selected = ("candidate:" + "1" * 32, "candidate:" + "2" * 32)
     state = bounded_input(
         config,

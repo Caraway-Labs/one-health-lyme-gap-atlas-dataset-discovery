@@ -123,7 +123,11 @@ def verify_sequential_graph(profile: str = "HOSTED_MANUAL") -> None:
         "ATLAS_DISCOVERY_SNAPSHOT_ID": "preflight-snapshot",
         "ATLAS_DISCOVERY_SEARCH_FINGERPRINT": "b" * 64,
         "ATLAS_PRICE_TABLE_VERSION": LunaPriceTable.standard_v1().version,
-        "ATLAS_MODEL_CONFIG_FINGERPRINT": ModelPolicy.luna_low_v2().fingerprint,
+        "ATLAS_MODEL_CONFIG_FINGERPRINT": (
+            ModelPolicy.luna_low_v2_4096().fingerprint
+            if profile == "SHADOW"
+            else ModelPolicy.luna_low_v2().fingerprint
+        ),
         "ATLAS_MODEL_PROVIDER": "openai",
         "ATLAS_MODEL_ID": "gpt-6-luna",
         "ATLAS_MODEL_API": "responses",
