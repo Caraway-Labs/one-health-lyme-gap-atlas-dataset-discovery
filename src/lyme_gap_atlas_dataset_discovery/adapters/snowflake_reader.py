@@ -73,6 +73,18 @@ _FIELDS = frozenset(
         "temporal",
         "license",
         "access_level",
+        "keywords",
+        "theme",
+        "resource_title",
+        "resource_role",
+        "resource_type",
+        "canonical_url",
+        "distribution_description",
+        "distribution_media_type",
+        "distribution_format",
+        "catalog_record_id",
+        "parent_dataset_id",
+        "documentation_url",
     }
 )
 _FIELD_LIMITS = {
@@ -85,6 +97,18 @@ _FIELD_LIMITS = {
     "temporal": 300,
     "license": 300,
     "access_level": 100,
+    "keywords": 1000,
+    "theme": 300,
+    "resource_title": 200,
+    "resource_role": 50,
+    "resource_type": 50,
+    "canonical_url": 500,
+    "distribution_description": 300,
+    "distribution_media_type": 100,
+    "distribution_format": 100,
+    "catalog_record_id": 500,
+    "parent_dataset_id": 200,
+    "documentation_url": 500,
 }
 
 

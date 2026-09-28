@@ -1,5 +1,6 @@
 """The compiled graph iterates candidates and persists final run outcomes."""
 
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
@@ -213,6 +214,125 @@ def test_alternate_distribution_is_capped_low_without_model_relationship() -> No
     assert result["usage"].model_calls == 3
     assert bundle.relationship.relationship == Relationship.ALTERNATE_DISTRIBUTION
     assert bundle.priority.bucket.value == "LOW"
+
+
+def test_forensic_usgs_digital_data_remains_low_eligible_with_unknown_options() -> None:
+    candidate, observations, plan = fixture("usgs-digital-data")
+    enriched = observations[0].model_copy(
+        update={
+            "field_values": {
+                **observations[0].field_values,
+                "description": (
+                    "Blacklegged tick nymph density and Borrelia burgdorferi prevalence, 2014-2022"
+                ),
+                "resource_title": "Digital Data",
+                "resource_role": "access",
+                "resource_type": "API",
+                "canonical_url": "https://doi.org/10.5066/P9LSI8K9",
+                "spatial": "-80.0000, 37.6000, -71.0000, 41.3000",
+                "access_level": "public",
+            }
+        }
+    )
+    reader = FakeCandidateReader(
+        candidates=(candidate,),
+        observations={"usgs-digital-data": (enriched,)},
+        identity_links={
+            "usgs-digital-data": (
+                identity_link(candidate, relationship=Relationship.ALTERNATE_DISTRIBUTION),
+            )
+        },
+    )
+    repository = FakeRecommendationRepository()
+    result = build_graph(
+        GraphDependencies(
+            reader=reader,
+            repository=repository,
+            planner=FakeCandidatePlanner({"usgs-digital-data": plan}),
+        )
+    ).invoke(input_state(), config={"recursion_limit": 100})
+    bundle = next(iter(repository.recommendation_bundles.values()))
+    assert result["final_status"] == "SUCCEEDED_WITH_RECOMMENDATIONS"
+    assert bundle.priority.bucket.value == "LOW"
+    assert bundle.ranking_input.dimensions.geography.value is None
+    assert bundle.ranking_input.dimensions.rights_clarity.value is None
+
+
+def test_forensic_usgs_original_metadata_is_supporting_evidence_not_new_source() -> None:
+    candidate, observations, _ = fixture("usgs-metadata-xml")
+    metadata = observations[0].model_copy(
+        update={
+            "field_values": {
+                **observations[0].field_values,
+                "resource_title": "Original Metadata",
+                "resource_role": "download",
+                "resource_type": "DATA",
+                "distribution_media_type": "text/xml",
+                "distribution_format": "XML",
+                "canonical_url": "https://data.usgs.gov/datacatalog/metadata/USGS.637cfb9bd34ed907bf73c08c.xml",
+            }
+        }
+    )
+    repository = FakeRecommendationRepository()
+    result = build_graph(
+        GraphDependencies(
+            reader=FakeCandidateReader(
+                candidates=(candidate,),
+                observations={"usgs-metadata-xml": (metadata,)},
+                identity_links={
+                    "usgs-metadata-xml": (
+                        identity_link(candidate, relationship=Relationship.ALTERNATE_DISTRIBUTION),
+                    )
+                },
+            ),
+            repository=repository,
+            planner=FakeCandidatePlanner({}),
+        )
+    ).invoke(input_state(), config={"recursion_limit": 100})
+    assert result["usage"].model_calls == 0
+    assert result["processed_candidate_outcomes"] == ("SUPPORTING_METADATA_DISTRIBUTION",)
+    decision = next(iter(repository.outcomes.values())).decision_record
+    assert decision is not None
+    assert decision.relationship == "ALTERNATE_DISTRIBUTION"
+    assert decision.task_type == "NOT_CALLED"
+    assert not repository.recommendations
+
+
+def test_forensic_nih_review_with_null_relevance_has_auditable_abstention() -> None:
+    candidate, observations, plan = fixture("nih-literature")
+    dimensions = plan.dimensions.model_copy(update={"relevance": Dimension(value=None)})
+    conservative = replace(
+        plan,
+        analysis=plan.analysis.model_copy(
+            update={"classification": Classification.INSUFFICIENT_EVIDENCE}
+        ),
+        dimensions=dimensions,
+    )
+    repository = FakeRecommendationRepository()
+    result = build_graph(
+        GraphDependencies(
+            reader=FakeCandidateReader(
+                candidates=(candidate,),
+                observations={"nih-literature": observations},
+                identity_links={
+                    "nih-literature": (
+                        identity_link(candidate, relationship=Relationship.ALTERNATE_DISTRIBUTION),
+                    )
+                },
+            ),
+            repository=repository,
+            planner=FakeCandidatePlanner({"nih-literature": conservative}),
+        )
+    ).invoke(input_state(), config={"recursion_limit": 100})
+    assert result["processed_candidate_outcomes"] == ("INSUFFICIENT_EVIDENCE",)
+    decision = next(iter(repository.outcomes.values())).decision_record
+    assert decision is not None
+    assert decision.classification == "INSUFFICIENT_EVIDENCE"
+    assert decision.relevance is None
+    assert decision.validator_result == "PASSED_CLASSIFICATION"
+    with pytest.raises(ValueError, match="candidate outcome key reused"):
+        existing = next(iter(repository.outcomes.values()))
+        repository.record_candidate_outcome(existing.model_copy(update={"decision_record": None}))
 
 
 def test_multiple_identity_links_abstain_without_model_guess() -> None:
