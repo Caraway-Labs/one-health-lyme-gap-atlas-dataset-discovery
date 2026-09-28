@@ -12,6 +12,7 @@ from lyme_gap_atlas_dataset_discovery.domain.ranking import PriorityInput, Prior
 from lyme_gap_atlas_dataset_discovery.domain.relationships import RelationshipResult
 
 from .budgets import BudgetLimit, BudgetUsage, RunProfile
+from .planner import ModelDiagnostic, ModelUsage
 
 STATE_VERSION = "dataset-discovery-state-v1"
 
@@ -56,6 +57,8 @@ class DatasetDiscoveryState(TypedDict, total=False):
     current_ranking_input: PriorityInput | None
     current_priority: PriorityResult | None
     current_proposals: tuple[SearchExpansionProposal, ...]
+    current_model_diagnostic: ModelDiagnostic | None
+    current_model_usage: ModelUsage | None
     next_page_cursor: str | None
     pages_loaded: int
     processed_candidate_outcomes: tuple[str, ...]
@@ -82,6 +85,8 @@ def clear_candidate_state() -> DatasetDiscoveryState:
         "current_ranking_input": None,
         "current_priority": None,
         "current_proposals": (),
+        "current_model_diagnostic": None,
+        "current_model_usage": None,
         "candidate_outcome_reason": None,
         "skip_duplicate": False,
         "persistence_operation_key": None,

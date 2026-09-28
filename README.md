@@ -46,8 +46,9 @@ outcome and finalized at its one-candidate budget. Scheduling remains disabled.
 DigitalOcean HOSTED_MANUAL and three-candidate SHADOW runs have executed against
 DEV Snowflake at exact recorded SHAs. The accepted hosted sessions are paused
 and scheduling remains disabled. The SHADOW operating spec routes redacted
-OpenTelemetry spans to Arize AX SaaS through OTLP/HTTP; remote receipt still
-requires direct inspection of a hosted trace in the Arize AX project.
+OpenTelemetry spans to Arize AX SaaS through OTLP/HTTP. Remote receipt
+was verified for the corrective SHADOW run by querying the Arize AX HTTPS trace
+endpoint for the exact OTEL trace ID in the `atlas-dataset-discovery` project.
 
 ## Backlog migration
 

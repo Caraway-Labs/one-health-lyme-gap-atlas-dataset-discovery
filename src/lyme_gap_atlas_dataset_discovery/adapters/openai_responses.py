@@ -1,6 +1,9 @@
 """Tool-free OpenAI Responses semantic transport behind the candidate planner port."""
 
+import dataclasses
+import hashlib
 import json
+import re
 from dataclasses import dataclass
 from time import monotonic
 from typing import Any
@@ -8,7 +11,7 @@ from typing import Any
 from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI, RateLimitError
 from openai.lib._pydantic import to_strict_json_schema
 from opentelemetry import trace
-from pydantic import Field
+from pydantic import Field, ValidationError
 
 from lyme_gap_atlas_dataset_discovery.adapters.model_planner import (
     MAX_REQUEST_BYTES,
@@ -26,6 +29,8 @@ from lyme_gap_atlas_dataset_discovery.graph.budgets import BudgetExceeded
 from lyme_gap_atlas_dataset_discovery.graph.planner import (
     InvalidModelResponse,
     ModelAllowance,
+    ModelDiagnostic,
+    ModelTransportFailure,
     ModelUsage,
     UnmeteredModelResponse,
 )
@@ -86,6 +91,27 @@ _SCHEMAS: dict[str, type[StrictModel]] = {
     "write short cited claims": _RationaleOutput,
     "propose at most ten inactive": _ProposalsOutput,
 }
+_TASK_TYPES = {
+    "infer semantic relationship": "RELATIONSHIP",
+    "classify candidate": "CLASSIFICATION",
+    "write short cited claims": "RATIONALE",
+    "propose at most ten inactive": "PROPOSALS",
+}
+
+
+def _safe_schema_error(error: ValidationError) -> tuple[str, str | None]:
+    """Use Pydantic error types and paths only, never error input or message."""
+    first = error.errors(include_input=False, include_context=False, include_url=False)[0]
+    path = ".".join(str(part) for part in first["loc"])
+    field = path if re.fullmatch(r"[A-Za-z0-9_.:-]{1,120}", path) else None
+    kind = first["type"]
+    if kind == "missing":
+        return "MISSING_REQUIRED_FIELD", field
+    if kind in {"enum", "literal_error"}:
+        return "INVALID_ENUM_VALUE", field
+    if path.startswith("dimensions.") and kind in {"less_than_equal", "greater_than_equal"}:
+        return "INVALID_DIMENSION_SCALE", field
+    return "SCHEMA_PARSE_FAILED", field
 
 
 @dataclass(frozen=True, repr=False)
@@ -123,6 +149,18 @@ class OpenAIResponsesPlanner(BoundedModelPlanner):
         if schema is None:
             raise ValueError("unreviewed semantic task")
         assert prefix is not None
+        diagnostic = ModelDiagnostic(
+            task_type=_TASK_TYPES[prefix],
+            model_call_attempted=False,
+            model_call_succeeded_transport=False,
+            structured_parse_succeeded=False,
+            validation_stage="PROVIDER_TRANSPORT",
+            validation_error_code=None,
+            validation_field=None,
+            validator_name="OpenAIResponsesPlanner",
+            validator_version="dataset-discovery-semantic-validation-v1",
+            response_schema_version=f"{schema.__name__}:v1",
+        )
         if (
             min(
                 allowance.max_input_tokens,
@@ -150,6 +188,7 @@ class OpenAIResponsesPlanner(BoundedModelPlanner):
             raise BudgetExceeded("model request exceeds remaining token or spend allowance")
         client = OpenAI(api_key=self.api_key, timeout=self.timeout_seconds, max_retries=0)
         start = monotonic()
+        diagnostic = dataclasses.replace(diagnostic, model_call_attempted=True)
         try:
             response: Any = client.responses.create(
                 model=self.model_id,
@@ -171,20 +210,39 @@ class OpenAIResponsesPlanner(BoundedModelPlanner):
                 max_output_tokens=reserved_output_tokens,
             )
         except (APIConnectionError, APITimeoutError, RateLimitError):
-            raise ConnectionError("OpenAI transient transport failure") from None
+            raise ModelTransportFailure(
+                dataclasses.replace(diagnostic, validation_error_code="PROVIDER_TRANSPORT_FAILED")
+            ) from None
         except APIStatusError as error:
             if error.status_code in {408, 429, 500, 502, 503, 504}:
-                raise ConnectionError("OpenAI transient service failure") from None
-            raise ValueError("OpenAI rejected semantic request") from None
+                raise ModelTransportFailure(
+                    dataclasses.replace(diagnostic, validation_error_code="PROVIDER_SERVICE_FAILED")
+                ) from None
+            raise InvalidModelResponse(
+                ModelUsage(
+                    diagnostic=dataclasses.replace(
+                        diagnostic, validation_error_code="PROVIDER_REQUEST_REJECTED"
+                    )
+                )
+            ) from None
         finally:
             client.close()
+        diagnostic = dataclasses.replace(diagnostic, model_call_succeeded_transport=True)
         usage = response.usage
         if (
             usage is None
             or type(usage.input_tokens) is not int
             or type(usage.output_tokens) is not int
         ):
-            raise UnmeteredModelResponse()
+            raise UnmeteredModelResponse(
+                ModelUsage(
+                    diagnostic=dataclasses.replace(
+                        diagnostic,
+                        validation_stage="USAGE_VALIDATION",
+                        validation_error_code="UNMETERED_RESPONSE",
+                    )
+                )
+            )
         cached = (
             usage.input_tokens_details.cached_tokens
             if usage.input_tokens_details is not None
@@ -203,7 +261,15 @@ class OpenAIResponsesPlanner(BoundedModelPlanner):
             or not 0 <= cached <= usage.input_tokens
             or not 0 <= reasoning <= usage.output_tokens
         ):
-            raise UnmeteredModelResponse()
+            raise UnmeteredModelResponse(
+                ModelUsage(
+                    diagnostic=dataclasses.replace(
+                        diagnostic,
+                        validation_stage="USAGE_VALIDATION",
+                        validation_error_code="INVALID_USAGE",
+                    )
+                )
+            )
         measured = ModelUsage(
             input_tokens=usage.input_tokens,
             output_tokens=usage.output_tokens,
@@ -213,6 +279,7 @@ class OpenAIResponsesPlanner(BoundedModelPlanner):
             estimated_spend_cents=table.charge_cents(
                 usage.input_tokens, usage.output_tokens, cached_input_tokens=cached
             ),
+            diagnostic=diagnostic,
         )
         span = trace.get_current_span()
         if span.is_recording():
@@ -231,15 +298,68 @@ class OpenAIResponsesPlanner(BoundedModelPlanner):
         if response.model != self.model_id:
             raise UnmeteredModelResponse(measured)
         if response.status != "completed":
-            raise InvalidModelResponse(measured)
+            raise InvalidModelResponse(
+                measured.model_copy(
+                    update={
+                        "diagnostic": dataclasses.replace(
+                            diagnostic,
+                            validation_stage="PROVIDER_RESPONSE",
+                            validation_error_code="RESPONSE_NOT_COMPLETED",
+                        )
+                    }
+                )
+            )
         output_text = response.output_text
         if (
             not isinstance(output_text, str)
             or len(output_text.encode("utf-8")) > MAX_RESPONSE_BYTES
         ):
-            raise InvalidModelResponse(measured)
+            raise InvalidModelResponse(
+                measured.model_copy(
+                    update={
+                        "diagnostic": dataclasses.replace(
+                            diagnostic,
+                            validation_stage="PROVIDER_RESPONSE",
+                            validation_error_code="INVALID_RESPONSE_CONTENT",
+                        )
+                    }
+                )
+            )
+        diagnostic = dataclasses.replace(
+            diagnostic, response_fingerprint=hashlib.sha256(output_text.encode("utf-8")).hexdigest()
+        )
         try:
             parsed = schema.model_validate_json(output_text)
+        except ValidationError as error:
+            code, field = _safe_schema_error(error)
+            raise InvalidModelResponse(
+                measured.model_copy(
+                    update={
+                        "diagnostic": dataclasses.replace(
+                            diagnostic,
+                            validation_stage="STRUCTURED_PARSE",
+                            validation_error_code=code,
+                            validation_field=field,
+                        )
+                    }
+                )
+            ) from None
         except ValueError:
-            raise InvalidModelResponse(measured) from None
-        return parsed.model_dump(mode="json"), measured
+            raise InvalidModelResponse(
+                measured.model_copy(
+                    update={
+                        "diagnostic": dataclasses.replace(
+                            diagnostic,
+                            validation_stage="STRUCTURED_PARSE",
+                            validation_error_code="SCHEMA_PARSE_FAILED",
+                        )
+                    }
+                )
+            ) from None
+        return parsed.model_dump(mode="json"), measured.model_copy(
+            update={
+                "diagnostic": dataclasses.replace(
+                    diagnostic, structured_parse_succeeded=True, validation_stage="SCHEMA_VALIDATED"
+                )
+            }
+        )
