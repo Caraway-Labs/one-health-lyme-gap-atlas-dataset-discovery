@@ -55,6 +55,23 @@ def test_compilation_does_not_connect_and_exports_full_graph() -> None:
         graph.invoke({})
 
 
+def test_4096_config_is_confined_to_shadow_profile() -> None:
+    baseline = environment()
+    experiment = ModelPolicy.luna_low_v2_4096().fingerprint
+    with pytest.raises(ValueError, match="reviewed source policy"):
+        HostedConfig.from_environment({**baseline, "ATLAS_MODEL_CONFIG_FINGERPRINT": experiment})
+    with pytest.raises(ValueError, match="reviewed source policy"):
+        HostedConfig.from_environment({**baseline, "ATLAS_DISCOVERY_PROFILE": "SHADOW"})
+    shadow = HostedConfig.from_environment(
+        {
+            **baseline,
+            "ATLAS_DISCOVERY_PROFILE": "SHADOW",
+            "ATLAS_MODEL_CONFIG_FINGERPRINT": experiment,
+        }
+    )
+    assert shadow.profile == RunProfile.SHADOW
+
+
 @pytest.mark.parametrize(
     "change",
     [
@@ -81,7 +98,13 @@ def test_secret_or_price_missing_prevents_graph_export() -> None:
 
 
 def test_shadow_graph_requires_shadow_profile_and_manual_trigger() -> None:
-    config = HostedConfig.from_environment({**environment(), "ATLAS_DISCOVERY_PROFILE": "SHADOW"})
+    config = HostedConfig.from_environment(
+        {
+            **environment(),
+            "ATLAS_DISCOVERY_PROFILE": "SHADOW",
+            "ATLAS_MODEL_CONFIG_FINGERPRINT": ModelPolicy.luna_low_v2_4096().fingerprint,
+        }
+    )
     assert config.profile == RunProfile.SHADOW
 
     def no_connection(_config: HostedConfig) -> Any:
