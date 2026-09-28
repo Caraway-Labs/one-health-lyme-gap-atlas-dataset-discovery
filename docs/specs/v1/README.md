@@ -128,7 +128,11 @@ provider-side response storage. Its fingerprint includes the provider, model,
 API, reasoning, capabilities, prompt version, processing mode, output cap, and
 storage setting; credentials and environment-specific secret names are excluded.
 The wrapper then checks citations and observed values against retained evidence;
-deterministic ranking remains outside the model. A hosted bootstrap must supply
+deterministic ranking remains outside the model. For rejected semantic outputs,
+the bounded DEV decision audit records invocation, transport/parse status,
+validator stage/code, safe field path, reported usage, schema version, and a
+response fingerprint. See [invalid-response diagnostics](../../operations/invalid-response-diagnostics.md).
+A hosted bootstrap must supply
 the approved environment-specific managed credential and exact policy/price
 fingerprints. The packaged Standard price table includes cached input, cache
 writes, and the >272K input-token long-context band. Unreported cache-write

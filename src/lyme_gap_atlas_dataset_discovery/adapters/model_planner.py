@@ -7,7 +7,7 @@ ValidatedCandidatePlanner against the retained Snowflake observations.
 import json
 import math
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -69,6 +69,19 @@ class ReviewedModelPrice:
 
 
 type ModelTransport = Callable[[str, str, dict[str, Any], float], dict[str, Any]]
+
+
+def _semantic_parse_failure(usage: ModelUsage, code: str) -> InvalidModelResponse:
+    diagnostic = usage.diagnostic
+    if diagnostic is not None:
+        usage = usage.model_copy(
+            update={
+                "diagnostic": replace(
+                    diagnostic, validation_stage="SEMANTIC_PARSE", validation_error_code=code
+                )
+            }
+        )
+    return InvalidModelResponse(usage)
 
 
 def https_json_transport(
@@ -234,7 +247,7 @@ class BoundedModelPlanner:
         try:
             result = RelationshipResult.model_validate(answer)
         except ValueError:
-            raise InvalidModelResponse(usage) from None
+            raise _semantic_parse_failure(usage, "SCHEMA_PARSE_FAILED") from None
         return PlannerResult(result, usage)
 
     def classify(
@@ -255,14 +268,14 @@ class BoundedModelPlanner:
             allowance,
         )
         if set(answer) != {"analysis", "dimensions"}:
-            raise InvalidModelResponse(usage)
+            raise _semantic_parse_failure(usage, "INVALID_RESPONSE_SHAPE")
         try:
             result = (
                 CandidateAnalysis.model_validate(answer["analysis"]),
                 RankingDimensions.model_validate(answer["dimensions"]),
             )
         except (KeyError, ValueError):
-            raise InvalidModelResponse(usage) from None
+            raise _semantic_parse_failure(usage, "SCHEMA_PARSE_FAILED") from None
         return PlannerResult(result, usage)
 
     def rationale(
@@ -282,11 +295,11 @@ class BoundedModelPlanner:
             allowance,
         )
         if set(answer) != {"claims"}:
-            raise InvalidModelResponse(usage)
+            raise _semantic_parse_failure(usage, "INVALID_RESPONSE_SHAPE")
         try:
             result = TypeAdapter(tuple[RationaleClaim, ...]).validate_python(answer["claims"])
         except (KeyError, ValueError):
-            raise InvalidModelResponse(usage) from None
+            raise _semantic_parse_failure(usage, "SCHEMA_PARSE_FAILED") from None
         return PlannerResult(result, usage)
 
     def proposals(
@@ -306,13 +319,13 @@ class BoundedModelPlanner:
             allowance,
         )
         if set(answer) != {"proposals"}:
-            raise InvalidModelResponse(usage)
+            raise _semantic_parse_failure(usage, "INVALID_RESPONSE_SHAPE")
         try:
             result = TypeAdapter(tuple[SearchExpansionProposal, ...]).validate_python(
                 answer["proposals"]
             )
         except (KeyError, ValueError):
-            raise InvalidModelResponse(usage) from None
+            raise _semantic_parse_failure(usage, "SCHEMA_PARSE_FAILED") from None
         if len(result) > 10:
-            raise InvalidModelResponse(usage)
+            raise _semantic_parse_failure(usage, "TOO_MANY_PROPOSALS")
         return PlannerResult(result, usage)

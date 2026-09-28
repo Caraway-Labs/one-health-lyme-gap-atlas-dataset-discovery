@@ -4,7 +4,7 @@ import hashlib
 import json
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class StrictModel(BaseModel):
@@ -138,14 +138,34 @@ class DecisionDimension(StrictModel):
     cited_evidence_ids: tuple[str, ...] = ()
 
 
+class DecisionTokenUsage(StrictModel):
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    cached_input_tokens: int = Field(ge=0)
+    reasoning_tokens: int = Field(ge=0)
+    estimated_spend_cents: int = Field(ge=0)
+
+
 class CandidateDecisionRecord(StrictModel):
     """Bounded semantic audit, without prompts, observed values, or hidden reasoning."""
 
     model_id: str | None = Field(default=None, max_length=100)
+    provider: str | None = Field(default=None, max_length=80)
     model_fingerprint: str | None = Field(default=None, max_length=64)
     config_fingerprint: str = Field(max_length=64)
     prompt_version: str | None = Field(default=None, max_length=120)
-    task_type: str = Field(pattern="^(CLASSIFICATION|NOT_CALLED)$")
+    task_type: str = Field(pattern="^(RELATIONSHIP|CLASSIFICATION|RATIONALE|PROPOSALS|NOT_CALLED)$")
+    model_call_attempted: bool = False
+    model_call_succeeded_transport: bool = False
+    structured_parse_succeeded: bool = False
+    validation_stage: str | None = Field(default=None, max_length=80)
+    validation_error_code: str | None = Field(default=None, max_length=80)
+    validation_field: str | None = Field(default=None, max_length=120)
+    validator_name: str | None = Field(default=None, max_length=80)
+    validator_version: str | None = Field(default=None, max_length=120)
+    token_usage: DecisionTokenUsage | None = None
+    response_schema_version: str | None = Field(default=None, max_length=120)
+    response_fingerprint: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")
     classification: str | None = Field(default=None, max_length=80)
     relationship: str | None = Field(default=None, max_length=80)
     relationship_basis: str | None = Field(default=None, max_length=80)
@@ -156,6 +176,16 @@ class CandidateDecisionRecord(StrictModel):
     validator_result: str = Field(max_length=80)
     normalized_reason: str = Field(max_length=80)
     final_outcome: str = Field(max_length=80)
+
+    @model_validator(mode="after")
+    def coherent_model_audit(self) -> "CandidateDecisionRecord":
+        if self.task_type == "NOT_CALLED" and self.model_call_attempted:
+            raise ValueError("a called model cannot have task type NOT_CALLED")
+        if self.model_call_succeeded_transport and not self.model_call_attempted:
+            raise ValueError("transport success requires an attempted model call")
+        if self.structured_parse_succeeded and not self.model_call_succeeded_transport:
+            raise ValueError("structured parse requires transport success")
+        return self
 
     @field_validator("dimensions")
     @classmethod

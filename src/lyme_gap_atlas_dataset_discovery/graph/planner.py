@@ -1,6 +1,6 @@
 """Typed candidate analysis port used by separately testable graph nodes."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from typing import Protocol
 
 from pydantic import Field
@@ -58,6 +58,34 @@ class ModelUsage(StrictModel):
     latency_ms: int = Field(default=0, ge=0)
     retry_count: int = Field(default=0, ge=0)
     estimated_spend_cents: int = Field(default=0, ge=0)
+    diagnostic: "ModelDiagnostic | None" = None
+
+
+@dataclass(frozen=True)
+class ModelDiagnostic:
+    """Safe, bounded facts about one semantic invocation, never raw model content."""
+
+    task_type: str
+    model_call_attempted: bool
+    model_call_succeeded_transport: bool
+    structured_parse_succeeded: bool
+    validation_stage: str
+    validation_error_code: str | None
+    validation_field: str | None
+    validator_name: str
+    validator_version: str
+    response_schema_version: str
+    response_fingerprint: str | None = None
+    parsed_analysis: CandidateAnalysis | None = field(default=None, repr=False)
+    parsed_dimensions: RankingDimensions | None = field(default=None, repr=False)
+
+
+class ModelTransportFailure(ConnectionError):
+    """A semantic provider call was attempted but no response was received."""
+
+    def __init__(self, diagnostic: ModelDiagnostic) -> None:
+        super().__init__("semantic provider transport failed")
+        self.diagnostic = diagnostic
 
 
 class InvalidModelResponse(ValueError):
@@ -68,6 +96,65 @@ class InvalidModelResponse(ValueError):
     ) -> None:
         super().__init__(reason)
         self.usage = usage
+        self.diagnostic = usage.diagnostic
+
+
+_EVIDENCE_ERRORS = {
+    "relationship authority violation": "RELATIONSHIP_AUTHORITY_VIOLATION",
+    "semantic relationship cites unavailable observation": "UNKNOWN_EVIDENCE_ID",
+    "complementary relationship needs cited evidence": "MISSING_EVIDENCE_CITATION",
+    "semantic analysis changed canonical candidate identity": "CANDIDATE_IDENTITY_MISMATCH",
+    "ambiguous duplicate observation ID": "AMBIGUOUS_EVIDENCE_ID",
+    "observed fact lacks an exact retained evidence reference": "UNKNOWN_EVIDENCE_ID",
+    "observed fact value differs from retained metadata": "UNSUPPORTED_OBSERVED_FACT",
+    "observed fact belongs to a different candidate": "CROSS_CANDIDATE_EVIDENCE",
+    "field cannot be both observed and unknown": "CONFLICTING_EVIDENCE_STATE",
+    "inference cites no observed fact": "MISSING_EVIDENCE_CITATION",
+    "rationale assertion needs observed support": "MISSING_EVIDENCE_CITATION",
+    "unknown claim cannot claim observation support": "UNSUPPORTED_RATIONALE_CLAIM",
+    "unknown rationale differs from recorded unknown": "UNSUPPORTED_RATIONALE_CLAIM",
+    "observed rationale differs from validated fact": "UNSUPPORTED_RATIONALE_CLAIM",
+    "inferred rationale differs from recorded inference": "UNSUPPORTED_RATIONALE_CLAIM",
+    "search proposal cites no observed fact": "MISSING_EVIDENCE_CITATION",
+    "semantic dimension cites no validated observed fact": "UNKNOWN_EVIDENCE_ID",
+    "semantic dimension cites unrelated metadata fields": "UNSUPPORTED_DIMENSION_EVIDENCE",
+}
+
+
+def _rejected_usage(
+    usage: ModelUsage,
+    error: ValueError,
+    *,
+    stage: str,
+    analysis: CandidateAnalysis | None = None,
+    dimensions: RankingDimensions | None = None,
+) -> ModelUsage:
+    diagnostic = usage.diagnostic
+    if diagnostic is None:
+        return usage
+    return usage.model_copy(
+        update={
+            "diagnostic": replace(
+                diagnostic,
+                validation_stage=stage,
+                validation_error_code=_EVIDENCE_ERRORS.get(str(error), "OTHER_VALIDATION_FAILURE"),
+                validation_field=(
+                    "dimensions"
+                    if "dimension" in str(error)
+                    else "rationale_claims"
+                    if stage == "RATIONALE_VALIDATION"
+                    else "search_expansion_proposals"
+                    if stage == "PROPOSAL_VALIDATION"
+                    else "observed_facts"
+                    if "observed fact" in str(error)
+                    else None
+                ),
+                validator_name="ValidatedCandidatePlanner",
+                parsed_analysis=analysis,
+                parsed_dimensions=dimensions,
+            )
+        }
+    )
 
 
 class UnmeteredModelResponse(RuntimeError):
@@ -189,19 +276,34 @@ class ValidatedCandidatePlanner:
         allowed = {Relationship.UNKNOWN, Relationship.DISTINCT, Relationship.COMPLEMENTARY}
         if result.relationship not in allowed:
             raise InvalidModelResponse(
-                proposed.usage, "semantic model cannot assert an exact or governed relationship"
+                _rejected_usage(
+                    proposed.usage,
+                    ValueError("relationship authority violation"),
+                    stage="SEMANTIC_VALIDATION",
+                ),
+                "semantic model cannot assert an exact or governed relationship",
             )
         available = {item.reference.observation_id for item in observations}
         if not set(result.supporting_observation_ids).issubset(available):
             raise InvalidModelResponse(
-                proposed.usage, "semantic relationship cites unavailable observation"
+                _rejected_usage(
+                    proposed.usage,
+                    ValueError("semantic relationship cites unavailable observation"),
+                    stage="EVIDENCE_VALIDATION",
+                ),
+                "semantic relationship cites unavailable observation",
             )
         if (
             result.relationship == Relationship.COMPLEMENTARY
             and not result.supporting_observation_ids
         ):
             raise InvalidModelResponse(
-                proposed.usage, "complementary relationship needs cited evidence"
+                _rejected_usage(
+                    proposed.usage,
+                    ValueError("complementary relationship needs cited evidence"),
+                    stage="EVIDENCE_VALIDATION",
+                ),
+                "complementary relationship needs cited evidence",
             )
         safe = RelationshipResult(
             relationship=result.relationship,
@@ -225,7 +327,16 @@ class ValidatedCandidatePlanner:
             validate_analysis(analysis, available_evidence=observations)
             validate_dimension_evidence(analysis, dimensions)
         except ValueError as error:
-            raise InvalidModelResponse(proposed.usage, str(error)) from None
+            raise InvalidModelResponse(
+                _rejected_usage(
+                    proposed.usage,
+                    error,
+                    stage="EVIDENCE_VALIDATION",
+                    analysis=analysis,
+                    dimensions=dimensions,
+                ),
+                str(error),
+            ) from None
         return proposed
 
     def rationale(
@@ -242,7 +353,12 @@ class ValidatedCandidatePlanner:
                 available_evidence=observations,
             )
         except ValueError as error:
-            raise InvalidModelResponse(proposed.usage, str(error)) from None
+            raise InvalidModelResponse(
+                _rejected_usage(
+                    proposed.usage, error, stage="RATIONALE_VALIDATION", analysis=analysis
+                ),
+                str(error),
+            ) from None
         return proposed
 
     def proposals(
@@ -259,5 +375,10 @@ class ValidatedCandidatePlanner:
                 available_evidence=observations,
             )
         except ValueError as error:
-            raise InvalidModelResponse(proposed.usage, str(error)) from None
+            raise InvalidModelResponse(
+                _rejected_usage(
+                    proposed.usage, error, stage="PROPOSAL_VALIDATION", analysis=analysis
+                ),
+                str(error),
+            ) from None
         return proposed

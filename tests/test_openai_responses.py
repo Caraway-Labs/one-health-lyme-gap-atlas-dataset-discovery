@@ -147,3 +147,56 @@ def test_budget_prevents_call() -> None:
             {},
             ModelAllowance(max_input_tokens=1, max_output_tokens=1, max_estimated_spend_cents=1),
         )
+
+
+@pytest.mark.parametrize(
+    ("output_text", "expected_code", "expected_field"),
+    [
+        ("{}", "MISSING_REQUIRED_FIELD", "analysis"),
+        (
+            '{"analysis":{"classification":"BOGUS"},"dimensions":{}}',
+            "MISSING_REQUIRED_FIELD",
+            "analysis.identity",
+        ),
+        ("not json", "SCHEMA_PARSE_FAILED", None),
+    ],
+)
+def test_rejected_response_has_safe_parse_diagnostic(
+    monkeypatch: pytest.MonkeyPatch,
+    output_text: str,
+    expected_code: str,
+    expected_field: str | None,
+) -> None:
+    class Client:
+        def __init__(self, **_kwargs: Any) -> None:
+            self.responses = self
+
+        def create(self, **_kwargs: Any) -> Any:
+            return SimpleNamespace(
+                model="gpt-6-luna",
+                status="completed",
+                output_text=output_text,
+                usage=SimpleNamespace(
+                    input_tokens=30,
+                    output_tokens=20,
+                    input_tokens_details=None,
+                    output_tokens_details=None,
+                ),
+            )
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr("lyme_gap_atlas_dataset_discovery.adapters.openai_responses.OpenAI", Client)
+    with pytest.raises(InvalidModelResponse) as failure:
+        planner()._invoke("classify candidate", "shape", {}, ALLOWANCE)
+    diagnostic = failure.value.diagnostic
+    assert diagnostic is not None
+    assert diagnostic.model_call_attempted is True
+    assert diagnostic.model_call_succeeded_transport is True
+    assert diagnostic.structured_parse_succeeded is False
+    assert diagnostic.validation_stage == "STRUCTURED_PARSE"
+    assert diagnostic.validation_error_code == expected_code
+    assert diagnostic.validation_field == expected_field
+    assert len(diagnostic.response_fingerprint or "") == 64
+    assert output_text not in repr(diagnostic)

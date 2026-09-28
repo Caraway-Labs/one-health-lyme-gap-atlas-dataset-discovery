@@ -20,6 +20,7 @@ from lyme_gap_atlas_dataset_discovery.domain.models import (
     CandidateDecisionRecord,
     CandidateOutcomeReceipt,
     DecisionDimension,
+    DecisionTokenUsage,
     RecommendationIdentity,
     RunCreateMetadata,
     RunFinalizationReceipt,
@@ -55,6 +56,7 @@ from .budgets import (
 from .planner import (
     CandidatePlanner,
     ModelAllowance,
+    ModelDiagnostic,
     ModelUsage,
     PlannerResult,
     UnmeteredModelResponse,
@@ -148,6 +150,10 @@ def _deliver_with_receipt_reconciliation[ReceiptT](
 
 def _stable_id(*parts: str) -> str:
     return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
+
+
+def _safe_audit_name(value: str, fallback: str) -> str:
+    return value if re.fullmatch(r"[A-Za-z0-9_.:-]{1,120}", value) else fallback
 
 
 def _bounded_call[ResultT](
@@ -559,6 +565,8 @@ def build_graph(deps: GraphDependencies) -> Any:
         )
         relationship, usage = _charge_model_result(response, usage, state["limits"], allowance)
         result: DatasetDiscoveryState = {"usage": usage, "current_relationship": relationship}
+        result["current_model_diagnostic"] = response.usage.diagnostic
+        result["current_model_usage"] = response.usage
         if relationship.relationship in {Relationship.EXACT_DUPLICATE, Relationship.ALREADY_KNOWN}:
             result["candidate_outcome_reason"] = relationship.relationship.value
         return result
@@ -599,6 +607,8 @@ def build_graph(deps: GraphDependencies) -> Any:
             "current_analysis": analysis,
             "current_ranking_input": ranking_input,
             "current_priority": priority,
+            "current_model_diagnostic": response.usage.diagnostic,
+            "current_model_usage": response.usage,
         }
         if priority.score is None:
             result["candidate_outcome_reason"] = priority.abstain_reason or "ABSTAIN"
@@ -624,6 +634,8 @@ def build_graph(deps: GraphDependencies) -> Any:
         return {
             "usage": usage,
             "current_analysis": analysis.model_copy(update={"rationale_claims": rationale}),
+            "current_model_diagnostic": response.usage.diagnostic,
+            "current_model_usage": response.usage,
         }
 
     def propose_search_expansions(state: DatasetDiscoveryState) -> DatasetDiscoveryState:
@@ -649,6 +661,8 @@ def build_graph(deps: GraphDependencies) -> Any:
             "current_analysis": analysis.model_copy(
                 update={"search_expansion_proposals": proposals}
             ),
+            "current_model_diagnostic": response.usage.diagnostic,
+            "current_model_usage": response.usage,
         }
 
     def validate_candidate_result(state: DatasetDiscoveryState) -> DatasetDiscoveryState:
@@ -720,17 +734,43 @@ def build_graph(deps: GraphDependencies) -> Any:
         if candidate is None:
             raise ValueError("candidate outcome lacks canonical identity")
         analysis = state.get("current_analysis")
+        diagnostic = state.get("current_model_diagnostic")
+        model_usage = state.get("current_model_usage")
+        if analysis is None and diagnostic is not None:
+            analysis = diagnostic.parsed_analysis
         ranking_input = state.get("current_ranking_input")
         relationship = state.get("current_relationship")
         dimensions = (
             {
                 name: DecisionDimension(
                     value=dimension.value,
-                    cited_evidence_ids=dimension.supporting_observation_ids,
+                    cited_evidence_ids=tuple(
+                        sorted(
+                            {
+                                _safe_audit_name(item, "UNREVIEWED_EVIDENCE_ID")
+                                for item in dimension.supporting_observation_ids
+                            }
+                        )
+                    )[:25],
                 )
                 for name, dimension in ranking_input.dimensions.__dict__.items()
             }
             if ranking_input is not None
+            else {
+                name: DecisionDimension(
+                    value=dimension.value,
+                    cited_evidence_ids=tuple(
+                        sorted(
+                            {
+                                _safe_audit_name(item, "UNREVIEWED_EVIDENCE_ID")
+                                for item in dimension.supporting_observation_ids
+                            }
+                        )
+                    )[:25],
+                )
+                for name, dimension in diagnostic.parsed_dimensions.__dict__.items()
+            }
+            if diagnostic is not None and diagnostic.parsed_dimensions is not None
             else {}
         )
         cited_ids = (
@@ -744,26 +784,64 @@ def build_graph(deps: GraphDependencies) -> Any:
             cited_ids.update(relationship.supporting_observation_ids)
         decision = CandidateDecisionRecord(
             model_id=state.get("model_id"),
+            provider=state.get("model_provider"),
             model_fingerprint=state.get("model_fingerprint"),
             config_fingerprint=state["config_fingerprint"],
             prompt_version=state.get("prompt_versions", {}).get("semantic"),
-            task_type="CLASSIFICATION" if analysis is not None else "NOT_CALLED",
+            task_type=(
+                diagnostic.task_type
+                if diagnostic is not None
+                else "CLASSIFICATION"
+                if analysis is not None
+                else "NOT_CALLED"
+            ),
+            model_call_attempted=diagnostic.model_call_attempted if diagnostic else False,
+            model_call_succeeded_transport=(
+                diagnostic.model_call_succeeded_transport if diagnostic else False
+            ),
+            structured_parse_succeeded=(
+                diagnostic.structured_parse_succeeded if diagnostic else False
+            ),
+            validation_stage=diagnostic.validation_stage if diagnostic else None,
+            validation_error_code=diagnostic.validation_error_code if diagnostic else None,
+            validation_field=diagnostic.validation_field if diagnostic else None,
+            validator_name=diagnostic.validator_name if diagnostic else None,
+            validator_version=diagnostic.validator_version if diagnostic else None,
+            token_usage=(
+                DecisionTokenUsage(
+                    input_tokens=model_usage.input_tokens,
+                    output_tokens=model_usage.output_tokens,
+                    cached_input_tokens=model_usage.cached_input_tokens,
+                    reasoning_tokens=model_usage.reasoning_tokens,
+                    estimated_spend_cents=model_usage.estimated_spend_cents,
+                )
+                if model_usage is not None and model_usage.input_tokens > 0
+                else None
+            ),
+            response_schema_version=diagnostic.response_schema_version if diagnostic else None,
+            response_fingerprint=diagnostic.response_fingerprint if diagnostic else None,
             classification=analysis.classification.value if analysis is not None else None,
             relationship=relationship.relationship.value if relationship is not None else None,
             relationship_basis=relationship.basis if relationship is not None else None,
-            relevance=ranking_input.dimensions.relevance.value if ranking_input else None,
+            relevance=(
+                ranking_input.dimensions.relevance.value
+                if ranking_input
+                else diagnostic.parsed_dimensions.relevance.value
+                if diagnostic is not None and diagnostic.parsed_dimensions is not None
+                else None
+            ),
             dimensions=dimensions,
-            cited_evidence_ids=tuple(sorted(cited_ids)),
+            cited_evidence_ids=tuple(
+                sorted({_safe_audit_name(item, "UNREVIEWED_EVIDENCE_ID") for item in cited_ids})
+            )[:25],
             unknown_fields=(
                 tuple(
                     sorted(
                         {
-                            item.field
-                            if re.fullmatch(r"[A-Za-z0-9_.:-]{1,120}", item.field)
-                            else "UNREVIEWED_FIELD"
+                            _safe_audit_name(item.field, "UNREVIEWED_FIELD")
                             for item in analysis.unknowns
                         }
-                    )
+                    )[:25]
                 )
                 if analysis is not None
                 else ()
@@ -771,8 +849,13 @@ def build_graph(deps: GraphDependencies) -> Any:
             validator_result=(
                 "REJECTED_EVIDENCE_OR_CLAIM"
                 if reason == "INVALID_EVIDENCE_OR_CLAIM"
+                or diagnostic is not None
+                and diagnostic.validation_error_code is not None
+                and diagnostic.validation_stage
+                in {"EVIDENCE_VALIDATION", "RATIONALE_VALIDATION", "PROPOSAL_VALIDATION"}
                 else "PASSED_CLASSIFICATION"
                 if analysis is not None
+                and (diagnostic is None or diagnostic.validation_error_code is None)
                 else "FAILED_CLASSIFICATION"
                 if reason == "CANDIDATE_ANALYSIS_ERROR"
                 else "NOT_REACHED"
@@ -897,6 +980,20 @@ def build_graph(deps: GraphDependencies) -> Any:
                     if isinstance(error, (RetryExhausted, ChargedCallFailure))
                     else state["usage"]
                 )
+                reported_usage = getattr(cause, "usage", None)
+                diagnostic: ModelDiagnostic | None = getattr(cause, "diagnostic", None)
+                if diagnostic is None and isinstance(reported_usage, ModelUsage):
+                    diagnostic = reported_usage.diagnostic
+                diagnostic_state: DatasetDiscoveryState = (
+                    {
+                        "current_model_diagnostic": diagnostic,
+                        "current_model_usage": reported_usage
+                        if isinstance(reported_usage, ModelUsage)
+                        else None,
+                    }
+                    if diagnostic is not None
+                    else {}
+                )
                 if any(
                     getattr(charged_usage, dimension) > getattr(state["limits"], dimension)
                     for dimension in BudgetUsage.model_fields
@@ -907,6 +1004,7 @@ def build_graph(deps: GraphDependencies) -> Any:
                         "bounded_errors": bounded_errors,
                         "usage": charged_usage,
                         "remaining_run_budget": remaining_budget(charged_usage, state["limits"]),
+                        **diagnostic_state,
                     }
                 if name in candidate_analysis_nodes and not systemic:
                     return {
@@ -914,6 +1012,7 @@ def build_graph(deps: GraphDependencies) -> Any:
                         "bounded_errors": bounded_errors,
                         "usage": charged_usage,
                         "remaining_run_budget": remaining_budget(charged_usage, state["limits"]),
+                        **diagnostic_state,
                     }
                 return {
                     "stop_reason": code,
@@ -921,6 +1020,7 @@ def build_graph(deps: GraphDependencies) -> Any:
                     "bounded_errors": bounded_errors,
                     "usage": charged_usage,
                     "remaining_run_budget": remaining_budget(charged_usage, state["limits"]),
+                    **diagnostic_state,
                 }
 
         return guarded

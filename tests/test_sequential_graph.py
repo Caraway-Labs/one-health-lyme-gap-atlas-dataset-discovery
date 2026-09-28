@@ -40,6 +40,8 @@ from lyme_gap_atlas_dataset_discovery.graph.planner import (
     FakeCandidatePlanner,
     FixturePlan,
     InvalidModelResponse,
+    ModelDiagnostic,
+    ModelTransportFailure,
     ModelUsage,
     PlannerResult,
     UnmeteredModelResponse,
@@ -782,6 +784,115 @@ def test_exhausted_model_retries_record_candidate_and_charge_attempts() -> None:
     assert result["processed_candidate_outcomes"] == ("CANDIDATE_ANALYSIS_ERROR",)
     assert result["usage"].model_calls == 3
     assert repository.finalizations["run-1"].processed_count == 1
+
+
+@pytest.mark.parametrize(
+    ("mode", "stage", "code", "transport", "parsed"),
+    [
+        ("transport", "PROVIDER_TRANSPORT", "PROVIDER_TRANSPORT_FAILED", False, False),
+        ("schema", "STRUCTURED_PARSE", "MISSING_REQUIRED_FIELD", True, False),
+        ("evidence", "EVIDENCE_VALIDATION", "UNSUPPORTED_OBSERVED_FACT", True, True),
+    ],
+)
+def test_rejected_model_call_persists_exact_safe_diagnostic(
+    mode: str, stage: str, code: str, transport: bool, parsed: bool
+) -> None:
+    candidate, observations, plan = fixture("candidate")
+
+    class FailurePlanner(FakeCandidatePlanner):
+        attempts = 0
+
+        def classify(self, candidate, observations, *, allowance):  # type: ignore[no-untyped-def]
+            self.attempts += 1
+            diagnostic = ModelDiagnostic(
+                task_type="CLASSIFICATION",
+                model_call_attempted=True,
+                model_call_succeeded_transport=mode != "transport",
+                structured_parse_succeeded=mode == "evidence",
+                validation_stage="PROVIDER_TRANSPORT"
+                if mode == "transport"
+                else "STRUCTURED_PARSE"
+                if mode == "schema"
+                else "SCHEMA_VALIDATED",
+                validation_error_code="PROVIDER_TRANSPORT_FAILED"
+                if mode == "transport"
+                else "MISSING_REQUIRED_FIELD"
+                if mode == "schema"
+                else None,
+                validation_field="analysis" if mode == "schema" else None,
+                validator_name="OpenAIResponsesPlanner",
+                validator_version="dataset-discovery-semantic-validation-v1",
+                response_schema_version="_ClassificationOutput:v1",
+                response_fingerprint="a" * 64 if mode != "transport" else None,
+            )
+            if mode == "transport":
+                raise ModelTransportFailure(diagnostic)
+            usage = ModelUsage(input_tokens=30, output_tokens=20, diagnostic=diagnostic)
+            if mode == "schema":
+                raise InvalidModelResponse(usage)
+            invalid_fact = plan.analysis.observed_facts[0].model_copy(
+                update={"value": "unretained value"}
+            )
+            invalid_analysis = plan.analysis.model_copy(
+                update={"observed_facts": (invalid_fact, *plan.analysis.observed_facts[1:])}
+            )
+            return PlannerResult((invalid_analysis, plan.dimensions), usage)
+
+    repository = FakeRecommendationRepository()
+    planner = FailurePlanner({"candidate": plan})
+    reader = FakeCandidateReader(
+        candidates=(candidate,),
+        observations={"candidate": observations},
+        identity_links={
+            "candidate": (
+                identity_link(candidate, relationship=Relationship.ALTERNATE_DISTRIBUTION),
+            )
+        },
+    )
+    graph = build_graph(
+        GraphDependencies(
+            reader=reader,
+            repository=repository,
+            planner=planner,
+            context_reader=fixture_context(),
+            sleep=lambda _: None,
+        )
+    )
+    state = input_state()
+    state.update(
+        {
+            "profile": RunProfile.DEV_MANUAL,
+            "limits": PROFILE_DEFAULTS[RunProfile.DEV_MANUAL],
+            "model_provider": "openai",
+            "model_id": "gpt-6-luna",
+            "model_fingerprint": "a" * 64,
+            "prompt_versions": {"semantic": "dataset-discovery-openai-semantic-v1"},
+        }
+    )
+    result = graph.invoke(state, config={"recursion_limit": 100})
+    receipt = next(iter(repository.outcomes.values()))
+    decision = receipt.decision_record
+    assert decision is not None
+    assert planner.attempts == (3 if mode == "transport" else 1)
+    assert result["processed_candidate_outcomes"] == ("CANDIDATE_ANALYSIS_ERROR",)
+    assert decision.task_type == "CLASSIFICATION"
+    assert decision.model_call_attempted is True
+    assert decision.model_call_succeeded_transport is transport
+    assert decision.structured_parse_succeeded is parsed
+    assert decision.validation_stage == stage
+    assert decision.validation_error_code == code
+    assert decision.validation_field == (
+        "analysis" if mode == "schema" else "observed_facts" if mode == "evidence" else None
+    )
+    assert decision.validator_name == (
+        "ValidatedCandidatePlanner" if mode == "evidence" else "OpenAIResponsesPlanner"
+    )
+    assert decision.token_usage is None if mode == "transport" else decision.token_usage is not None
+    assert decision.classification == ("RELEVANT" if mode == "evidence" else None)
+    assert decision.relevance == (2 if mode == "evidence" else None)
+    assert decision.cited_evidence_ids == (("observation-candidate",) if mode == "evidence" else ())
+    assert decision.final_outcome == "CANDIDATE_ANALYSIS_ERROR"
+    assert "unretained value" not in decision.model_dump_json()
 
 
 def test_nonfixture_run_requires_matching_governed_context() -> None:
