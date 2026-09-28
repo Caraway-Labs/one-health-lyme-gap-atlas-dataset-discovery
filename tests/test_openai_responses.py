@@ -33,7 +33,7 @@ ALLOWANCE = ModelAllowance(
 
 
 def test_policy_fingerprint_and_long_context_price() -> None:
-    policy = ModelPolicy.luna_low_v1()
+    policy = ModelPolicy.luna_low_v2()
     table = LunaPriceTable.standard_v1()
     assert len(policy.fingerprint) == len(table.fingerprint) == 64
     assert policy.document["api"] == "responses"

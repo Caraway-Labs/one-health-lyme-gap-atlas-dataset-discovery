@@ -49,7 +49,7 @@ def bounded_input(
     selection_version = (
         hashlib.sha256("|".join(selected).encode("utf-8")).hexdigest() if selected else None
     )
-    policy = ModelPolicy.luna_low_v1()
+    policy = ModelPolicy.luna_low_v2()
     limits = PROFILE_DEFAULTS[RunProfile.SHADOW].model_copy(
         update={
             "candidates": 3,

@@ -48,10 +48,25 @@ _TASK_INSTRUCTIONS = {
         "With no evidence for a relationship, return UNKNOWN and an empty citation list."
     ),
     "classify candidate": (
-        "Copy only exact observed fields and evidence references. Leave rationale_claims and "
-        "search_expansion_proposals empty; separate Atlas steps produce them. Every scored "
-        "dimension must cite an observation for a relevant observed field. Inferences must cite "
-        "observed fact IDs. Do not claim an inferred value as an observed value."
+        "Decide whether a human should investigate this dataset or resource, not whether Atlas "
+        "should approve, onboard, ingest, or publish it. Judge Atlas relevance independently "
+        "of optional metadata completeness: 2 means directly relevant Lyme, tick, vector, "
+        "pathogen, or public-health dataset evidence; 1 means plausible but limited relevance; "
+        "0 means observed evidence supports irrelevance; null means relevance cannot be judged. "
+        "Use RELEVANT for supported direct relevance, POSSIBLY_RELEVANT for supported but "
+        "limited relevance, and IRRELEVANT for evidenced irrelevance. A topical article "
+        "without usable dataset or resource evidence may still be INSUFFICIENT_EVIDENCE. "
+        "A retained title, description, or keyword can support relevance when its exact observed "
+        "value is cited. Use INSUFFICIENT_EVIDENCE only when retained evidence cannot support "
+        "even minimal relevance or required candidate eligibility. Missing geography, temporal "
+        "coverage, rights/license, variable, or provenance detail does not by itself make the "
+        "whole candidate insufficient. Unknown or review-required rights and alternate "
+        "distribution status alone do not block human investigation. Leave each unsupported "
+        "optional dimension null; never invent its value. Copy only exact observed fields and "
+        "evidence references. Leave rationale_claims and search_expansion_proposals empty; "
+        "separate Atlas steps produce them. Every scored dimension must cite an observation "
+        "for a relevant observed field. Inferences must cite observed fact IDs. Do not claim "
+        "an inferred value as an observed value."
     ),
     "write short cited claims": (
         "Each OBSERVED claim must exactly copy a validated observed field value. Each INFERRED "
@@ -63,7 +78,7 @@ _TASK_INSTRUCTIONS = {
         "list when no evidence supports a useful search term."
     ),
 }
-OPENAI_PROMPT_VERSION = "dataset-discovery-openai-semantic-v1"
+OPENAI_PROMPT_VERSION = "dataset-discovery-openai-semantic-v2"
 
 
 class _RelationshipOutput(StrictModel):
@@ -188,7 +203,7 @@ class OpenAIResponsesPlanner(BoundedModelPlanner):
 
     def __post_init__(self) -> None:
         super().__post_init__()
-        policy = self.policy or ModelPolicy.luna_low_v1()
+        policy = self.policy or ModelPolicy.luna_low_v2()
         table = self.price_table or LunaPriceTable.standard_v1()
         if (
             self.endpoint.rstrip("/") != "https://api.openai.com/v1"

@@ -28,7 +28,7 @@ def bounded_input(
         raise ValueError("run or trace identity is invalid")
     if not _SESSION_ID.fullmatch(host_session_id):
         raise ValueError("host session identity is invalid")
-    policy = ModelPolicy.luna_low_v1()
+    policy = ModelPolicy.luna_low_v2()
     limits = PROFILE_DEFAULTS[RunProfile.HOSTED_MANUAL].model_copy(
         update={
             "candidates": 1,

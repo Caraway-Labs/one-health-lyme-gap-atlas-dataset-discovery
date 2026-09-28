@@ -1,0 +1,22 @@
+{
+  "provider": "openai",
+  "model": "gpt-6-luna",
+  "api": "responses",
+  "reasoning_effort": "low",
+  "structured_outputs": true,
+  "capabilities": {
+    "web_search": false,
+    "file_search": false,
+    "code_interpreter": false,
+    "hosted_shell": false,
+    "computer_use": false,
+    "mcp": false,
+    "image_generation": false
+  },
+  "model_policy_version": "atlas-dd-model-v1",
+  "prompt_version": "dataset-discovery-openai-semantic-v2",
+  "processing_mode": "standard",
+  "max_output_tokens_per_call": 2048,
+  "store": false,
+  "tools": []
+}

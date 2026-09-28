@@ -34,7 +34,7 @@ def evaluate(corpus: Path, key_file: Path) -> dict[str, object]:
     if not key or len(key) < 20:
         raise ValueError("local model credential is unavailable")
     table = LunaPriceTable.standard_v1()
-    policy = ModelPolicy.luna_low_v1()
+    policy = ModelPolicy.luna_low_v2()
     planner = OpenAIResponsesPlanner(
         endpoint="https://api.openai.com/v1",
         model_id="gpt-6-luna",
