@@ -76,6 +76,10 @@ class ModelDiagnostic:
     validator_version: str
     response_schema_version: str
     response_fingerprint: str | None = None
+    provider_response_status: str | None = None
+    provider_incomplete_reason: str | None = None
+    provider_error_code: str | None = None
+    provider_response_id_hash: str | None = None
     parsed_analysis: CandidateAnalysis | None = field(default=None, repr=False)
     parsed_dimensions: RankingDimensions | None = field(default=None, repr=False)
 

@@ -791,6 +791,7 @@ def test_exhausted_model_retries_record_candidate_and_charge_attempts() -> None:
     [
         ("transport", "PROVIDER_TRANSPORT", "PROVIDER_TRANSPORT_FAILED", False, False),
         ("schema", "STRUCTURED_PARSE", "MISSING_REQUIRED_FIELD", True, False),
+        ("incomplete", "PROVIDER_RESPONSE", "RESPONSE_NOT_COMPLETED", True, False),
         ("evidence", "EVIDENCE_VALIDATION", "UNSUPPORTED_OBSERVED_FACT", True, True),
     ],
 )
@@ -813,22 +814,29 @@ def test_rejected_model_call_persists_exact_safe_diagnostic(
                 if mode == "transport"
                 else "STRUCTURED_PARSE"
                 if mode == "schema"
+                else "PROVIDER_RESPONSE"
+                if mode == "incomplete"
                 else "SCHEMA_VALIDATED",
                 validation_error_code="PROVIDER_TRANSPORT_FAILED"
                 if mode == "transport"
                 else "MISSING_REQUIRED_FIELD"
                 if mode == "schema"
+                else "RESPONSE_NOT_COMPLETED"
+                if mode == "incomplete"
                 else None,
                 validation_field="analysis" if mode == "schema" else None,
                 validator_name="OpenAIResponsesPlanner",
                 validator_version="dataset-discovery-semantic-validation-v1",
                 response_schema_version="_ClassificationOutput:v1",
                 response_fingerprint="a" * 64 if mode != "transport" else None,
+                provider_response_status="INCOMPLETE" if mode == "incomplete" else None,
+                provider_incomplete_reason="MAX_OUTPUT_TOKENS" if mode == "incomplete" else None,
+                provider_response_id_hash="b" * 64 if mode == "incomplete" else None,
             )
             if mode == "transport":
                 raise ModelTransportFailure(diagnostic)
             usage = ModelUsage(input_tokens=30, output_tokens=20, diagnostic=diagnostic)
-            if mode == "schema":
+            if mode in {"schema", "incomplete"}:
                 raise InvalidModelResponse(usage)
             invalid_fact = plan.analysis.observed_facts[0].model_copy(
                 update={"value": "unretained value"}
@@ -881,6 +889,10 @@ def test_rejected_model_call_persists_exact_safe_diagnostic(
     assert decision.structured_parse_succeeded is parsed
     assert decision.validation_stage == stage
     assert decision.validation_error_code == code
+    if mode == "incomplete":
+        assert decision.provider_response_status == "INCOMPLETE"
+        assert decision.provider_incomplete_reason == "MAX_OUTPUT_TOKENS"
+        assert decision.provider_response_id_hash == "b" * 64
     assert decision.validation_field == (
         "analysis" if mode == "schema" else "observed_facts" if mode == "evidence" else None
     )
