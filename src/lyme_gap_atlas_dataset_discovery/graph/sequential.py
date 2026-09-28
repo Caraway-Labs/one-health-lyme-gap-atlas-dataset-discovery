@@ -17,7 +17,9 @@ from lyme_gap_atlas_dataset_discovery.domain.analysis import (
     validate_analysis,
 )
 from lyme_gap_atlas_dataset_discovery.domain.models import (
+    CandidateDecisionRecord,
     CandidateOutcomeReceipt,
+    DecisionDimension,
     RecommendationIdentity,
     RunCreateMetadata,
     RunFinalizationReceipt,
@@ -532,6 +534,16 @@ def build_graph(deps: GraphDependencies) -> Any:
                 deterministic_result["candidate_outcome_reason"] = (
                     Relationship.EXACT_DUPLICATE.value
                 )
+            elif link.relationship == Relationship.ALTERNATE_DISTRIBUTION and any(
+                observation.field_values.get("resource_role") == "download"
+                and observation.field_values.get("resource_title") == "Original Metadata"
+                and observation.field_values.get("distribution_media_type") == "text/xml"
+                and observation.field_values.get("distribution_format") == "XML"
+                for observation in state["current_observations"]
+            ):
+                deterministic_result["candidate_outcome_reason"] = (
+                    "SUPPORTING_METADATA_DISTRIBUTION"
+                )
             return deterministic_result
         allowance = _model_allowance(usage, state["limits"])
         response, usage = _bounded_call(
@@ -707,6 +719,67 @@ def build_graph(deps: GraphDependencies) -> Any:
         candidate = state["current_candidate"]
         if candidate is None:
             raise ValueError("candidate outcome lacks canonical identity")
+        analysis = state.get("current_analysis")
+        ranking_input = state.get("current_ranking_input")
+        relationship = state.get("current_relationship")
+        dimensions = (
+            {
+                name: DecisionDimension(
+                    value=dimension.value,
+                    cited_evidence_ids=dimension.supporting_observation_ids,
+                )
+                for name, dimension in ranking_input.dimensions.__dict__.items()
+            }
+            if ranking_input is not None
+            else {}
+        )
+        cited_ids = (
+            set(fact.evidence.observation_id for fact in analysis.observed_facts)
+            if analysis is not None
+            else set()
+        )
+        for dimension in dimensions.values():
+            cited_ids.update(dimension.cited_evidence_ids)
+        if relationship is not None:
+            cited_ids.update(relationship.supporting_observation_ids)
+        decision = CandidateDecisionRecord(
+            model_id=state.get("model_id"),
+            model_fingerprint=state.get("model_fingerprint"),
+            config_fingerprint=state["config_fingerprint"],
+            prompt_version=state.get("prompt_versions", {}).get("semantic"),
+            task_type="CLASSIFICATION" if analysis is not None else "NOT_CALLED",
+            classification=analysis.classification.value if analysis is not None else None,
+            relationship=relationship.relationship.value if relationship is not None else None,
+            relationship_basis=relationship.basis if relationship is not None else None,
+            relevance=ranking_input.dimensions.relevance.value if ranking_input else None,
+            dimensions=dimensions,
+            cited_evidence_ids=tuple(sorted(cited_ids)),
+            unknown_fields=(
+                tuple(
+                    sorted(
+                        {
+                            item.field
+                            if re.fullmatch(r"[A-Za-z0-9_.:-]{1,120}", item.field)
+                            else "UNREVIEWED_FIELD"
+                            for item in analysis.unknowns
+                        }
+                    )
+                )
+                if analysis is not None
+                else ()
+            ),
+            validator_result=(
+                "REJECTED_EVIDENCE_OR_CLAIM"
+                if reason == "INVALID_EVIDENCE_OR_CLAIM"
+                else "PASSED_CLASSIFICATION"
+                if analysis is not None
+                else "FAILED_CLASSIFICATION"
+                if reason == "CANDIDATE_ANALYSIS_ERROR"
+                else "NOT_REACHED"
+            ),
+            normalized_reason=reason,
+            final_outcome=reason,
+        )
         requested = CandidateOutcomeReceipt(
             operation_key=operation_key,
             run_id=state["run_id"],
@@ -716,6 +789,7 @@ def build_graph(deps: GraphDependencies) -> Any:
             evidence_snapshot_id=state["evidence_snapshot_id"],
             outcome=reason,
             reason_code=reason,
+            decision_record=decision,
         )
         _deliver_with_receipt_reconciliation(
             operation="candidate_outcome",

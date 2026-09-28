@@ -17,14 +17,14 @@ from lyme_gap_atlas_dataset_discovery.domain.ranking import RankingDimensions, R
 from lyme_gap_atlas_dataset_discovery.domain.relationships import RelationshipResult
 
 _DIMENSION_FIELDS: dict[str, frozenset[str]] = {
-    "relevance": frozenset({"title", "description"}),
-    "geography": frozenset({"spatial", "description", "title"}),
-    "variables": frozenset({"description", "title"}),
+    "relevance": frozenset({"title", "description", "keywords", "resource_title"}),
+    "geography": frozenset({"spatial", "description", "title", "keywords"}),
+    "variables": frozenset({"description", "title", "keywords"}),
     "time": frozenset({"temporal", "issued", "modified", "description"}),
     "provenance": frozenset({"publisher", "description"}),
     "freshness": frozenset({"issued", "modified"}),
     "rights_clarity": frozenset({"license", "access_level"}),
-    "complementarity": frozenset({"description", "title"}),
+    "complementarity": frozenset({"description", "title", "resource_title"}),
 }
 
 

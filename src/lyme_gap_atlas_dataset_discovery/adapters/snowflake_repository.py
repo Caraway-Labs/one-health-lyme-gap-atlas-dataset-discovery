@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from typing import Any, Protocol
 
 from lyme_gap_atlas_dataset_discovery.domain.models import (
+    CandidateDecisionRecord,
     CandidateOutcomeReceipt,
     RecommendationIdentity,
     RecommendationWriteReceipt,
@@ -114,7 +115,7 @@ class SnowflakeRecommendationRepository:
     def get_candidate_outcome(self, operation_key: str) -> CandidateOutcomeReceipt | None:
         row = self._one(
             "SELECT operation_key, run_id, resource_key, catalog_dataset_id, "
-            "catalog_resource_id, evidence_snapshot_id, outcome, reason_code "
+            "catalog_resource_id, evidence_snapshot_id, outcome, reason_code, decision_record "
             "FROM DATASET_DISCOVERY.V_CANDIDATE_OUTCOME_RECEIPTS WHERE operation_key = %s",
             (operation_key,),
         )
@@ -129,6 +130,11 @@ class SnowflakeRecommendationRepository:
             evidence_snapshot_id=row[5],
             outcome=row[6],
             reason_code=row[7],
+            decision_record=(
+                CandidateDecisionRecord.model_validate(_variant(row[8]))
+                if row[8] is not None
+                else None
+            ),
         )
 
     def save_recommendation(self, request: RecommendationWrite) -> RecommendationWriteReceipt:

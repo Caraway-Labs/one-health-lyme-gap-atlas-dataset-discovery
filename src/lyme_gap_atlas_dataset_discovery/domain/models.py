@@ -133,6 +133,57 @@ class RecommendationIdentity(StrictModel):
     equivalent_to_version_id: str | None = None
 
 
+class DecisionDimension(StrictModel):
+    value: int | None = Field(default=None, ge=0, le=2)
+    cited_evidence_ids: tuple[str, ...] = ()
+
+
+class CandidateDecisionRecord(StrictModel):
+    """Bounded semantic audit, without prompts, observed values, or hidden reasoning."""
+
+    model_id: str | None = Field(default=None, max_length=100)
+    model_fingerprint: str | None = Field(default=None, max_length=64)
+    config_fingerprint: str = Field(max_length=64)
+    prompt_version: str | None = Field(default=None, max_length=120)
+    task_type: str = Field(pattern="^(CLASSIFICATION|NOT_CALLED)$")
+    classification: str | None = Field(default=None, max_length=80)
+    relationship: str | None = Field(default=None, max_length=80)
+    relationship_basis: str | None = Field(default=None, max_length=80)
+    relevance: int | None = Field(default=None, ge=0, le=2)
+    dimensions: dict[str, DecisionDimension] = Field(default_factory=dict)
+    cited_evidence_ids: tuple[str, ...] = ()
+    unknown_fields: tuple[str, ...] = ()
+    validator_result: str = Field(max_length=80)
+    normalized_reason: str = Field(max_length=80)
+    final_outcome: str = Field(max_length=80)
+
+    @field_validator("dimensions")
+    @classmethod
+    def reviewed_dimensions(
+        cls, value: dict[str, DecisionDimension]
+    ) -> dict[str, DecisionDimension]:
+        allowed = {
+            "relevance",
+            "geography",
+            "variables",
+            "time",
+            "provenance",
+            "freshness",
+            "rights_clarity",
+            "complementarity",
+        }
+        if not set(value).issubset(allowed):
+            raise ValueError("unreviewed decision dimension")
+        return value
+
+    @field_validator("cited_evidence_ids", "unknown_fields")
+    @classmethod
+    def bounded_names(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if len(value) > 25 or any(not item or len(item) > 200 for item in value):
+            raise ValueError("decision audit list exceeds bound")
+        return value
+
+
 class CandidateOutcomeReceipt(StrictModel):
     operation_key: str = Field(min_length=1)
     run_id: str = Field(min_length=1)
@@ -142,6 +193,7 @@ class CandidateOutcomeReceipt(StrictModel):
     evidence_snapshot_id: str = Field(min_length=1)
     outcome: str = Field(min_length=1)
     reason_code: str | None = None
+    decision_record: CandidateDecisionRecord | None = None
 
 
 class RecommendationWriteReceipt(StrictModel):
