@@ -45,7 +45,10 @@ Eligibility requires canonical identity, one stable evidence ref, and evidence s
 The DEV safe-metadata correction consumes data-owned V117: observation fields
 include bounded Data.gov DCAT fallbacks plus public resource/distribution
 identity, keywords, access and documentation context. Missing fields remain
-unknown. The semantic task and Luna Low model configuration are unchanged.
+unknown. The v2 semantic prompt explicitly asks whether a human should investigate
+the candidate and evaluates cited relevance independently of optional metadata.
+Luna Low, the 2048 output-token cap, evidence validation, and the deterministic
+ranking policy remain unchanged.
 For an alternate distribution explicitly labeled `Original Metadata` with
 `download` role, XML format and `text/xml` media type, the graph records
 `SUPPORTING_METADATA_DISTRIBUTION` before semantic scoring; the shared catalog
@@ -122,7 +125,8 @@ reader's allowlisted observations and canonical candidate/analysis values,
 places catalog text in the user data message under fixed versioned system
 instructions, and requests a strict Pydantic-derived JSON schema for each of
 the four semantic steps. The initial candidate policy is the packaged,
-non-secret `config/openai-gpt-6-luna-low-v1.json`: OpenAI `gpt-6-luna`,
+non-secret `config/openai-gpt-6-luna-low-v2.json` (with v1 retained for audit):
+OpenAI `gpt-6-luna`,
 Responses API, low reasoning, structured output, no hosted tools, and no
 provider-side response storage. Its fingerprint includes the provider, model,
 API, reasoning, capabilities, prompt version, processing mode, output cap, and

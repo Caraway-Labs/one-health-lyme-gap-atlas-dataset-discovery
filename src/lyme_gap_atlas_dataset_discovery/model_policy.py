@@ -31,6 +31,18 @@ class ModelPolicy:
     @classmethod
     def luna_low_v1(cls) -> "ModelPolicy":
         document = _load("openai-gpt-6-luna-low-v1.json")
+        return cls._validated_luna_low(document)
+
+    @classmethod
+    def luna_low_v2(cls) -> "ModelPolicy":
+        """Current Luna Low policy; only the semantic prompt version differs from v1."""
+        document = _load("openai-gpt-6-luna-low-v2.json")
+        if document.get("prompt_version") != "dataset-discovery-openai-semantic-v2":
+            raise ValueError("semantic prompt version differs from reviewed v2 contract")
+        return cls._validated_luna_low(document)
+
+    @classmethod
+    def _validated_luna_low(cls, document: dict[str, Any]) -> "ModelPolicy":
         expected = {
             "provider": "openai",
             "model": "gpt-6-luna",

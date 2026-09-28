@@ -109,7 +109,7 @@ class HostedConfig:
             raise ValueError("hosted entrypoint requires HOSTED_MANUAL or SHADOW profile")
         if any(not env.get(name) for name in required):
             raise ValueError("hosted entrypoint is missing required managed configuration")
-        policy = ModelPolicy.luna_low_v1()
+        policy = ModelPolicy.luna_low_v2()
         price_table = LunaPriceTable.standard_v1()
         if (
             env["ATLAS_MODEL_CONFIG_FINGERPRINT"] != policy.fingerprint
@@ -250,7 +250,7 @@ def build_hosted_graph(
         config.model_id,
         config.model_api_key,
         price,
-        policy=ModelPolicy.luna_low_v1(),
+        policy=ModelPolicy.luna_low_v2(),
         price_table=LunaPriceTable.standard_v1(),
     )
 

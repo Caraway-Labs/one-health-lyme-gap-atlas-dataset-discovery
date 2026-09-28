@@ -17,7 +17,7 @@ def environment() -> dict[str, str]:
         "ATLAS_DISCOVERY_SNAPSHOT_ID": "snapshot-1",
         "ATLAS_DISCOVERY_SEARCH_FINGERPRINT": "c" * 64,
         "ATLAS_PRICE_TABLE_VERSION": LunaPriceTable.standard_v1().version,
-        "ATLAS_MODEL_CONFIG_FINGERPRINT": ModelPolicy.luna_low_v1().fingerprint,
+        "ATLAS_MODEL_CONFIG_FINGERPRINT": ModelPolicy.luna_low_v2().fingerprint,
         "ATLAS_MODEL_PROVIDER": "openai",
         "ATLAS_MODEL_ID": "gpt-6-luna",
         "ATLAS_MODEL_API": "responses",
