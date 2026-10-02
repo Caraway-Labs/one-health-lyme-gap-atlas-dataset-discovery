@@ -1,6 +1,7 @@
 """Failure/recovery uses original logical identities and no automatic write retry."""
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 import pytest
@@ -116,3 +117,72 @@ def test_cli_classified_failure_is_safe_and_does_not_resubmit(
     assert kind.value in output.err
     assert "private" not in output.err
     assert calls == [(VERSION, EVENT)]
+
+
+@pytest.mark.parametrize("command", ["handoff", "handoff-status"])
+@pytest.mark.parametrize("stage", ["connect", "initial_identity"])
+@pytest.mark.parametrize(
+    "error,kind,exit_code",
+    [
+        (
+            ProgrammingError(msg="private authorization SQL", sqlstate="42501"),
+            HandoffFailureKind.TERMINAL_FAILURE,
+            2,
+        ),
+        (
+            ProgrammingError(msg="private authentication details", sqlstate="28000"),
+            HandoffFailureKind.TERMINAL_FAILURE,
+            2,
+        ),
+        (
+            OperationalError(msg="private timeout SQL", errno=ER_CONNECTION_TIMEOUT),
+            HandoffFailureKind.RETRYABLE_FAILURE,
+            1,
+        ),
+    ],
+)
+def test_cli_real_handoff_initialization_classifies_connector_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    command: str,
+    stage: str,
+    error: OperationalError | ProgrammingError,
+    kind: HandoffFailureKind,
+    exit_code: int,
+) -> None:
+    class FailedIdentityCursor(StubCursor):
+        def execute(
+            self, sql: str, params: Sequence[object] = (), *, timeout: int | None = None
+        ) -> StubCursor:
+            super().execute(sql, params, timeout=timeout)
+            raise error
+
+    class FailedIdentityConnection(StubConnection):
+        def cursor(self) -> StubCursor:
+            return FailedIdentityCursor(self, self.responses.pop(0))
+
+    connection = FailedIdentityConnection([[]])
+    opened: list[str] = []
+
+    @contextmanager
+    def open_connection(name: str) -> Iterator[StubConnection]:
+        opened.append(name)
+        if stage == "connect":
+            raise error
+        yield connection
+
+    # Only the connection is replaced: CLI, service, client and principal probe are real.
+    monkeypatch.setattr(review_cli, "_open_connection", open_connection)
+    arguments = ["--connection", "TEST_REVIEWER", command, VERSION]
+    if command == "handoff":
+        arguments.extend(["--review-event-id", EVENT])
+    assert review_cli.main(arguments) == exit_code
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert kind.value in output.err
+    assert "private" not in output.err
+    assert "ProgrammingError" not in output.err
+    assert opened == ["TEST_REVIEWER"]
+    assert not any(sql.startswith("CALL ") for sql, _, _ in connection.calls)
+    assert len(connection.calls) == (1 if stage == "initial_identity" else 0)
+    assert connection.closed_cursors == (1 if stage == "initial_identity" else 0)

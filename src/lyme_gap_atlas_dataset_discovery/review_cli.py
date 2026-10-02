@@ -7,7 +7,9 @@ from collections.abc import Sequence
 from typing import Any
 
 from pydantic import BaseModel
+from snowflake.connector.errors import Error
 
+from lyme_gap_atlas_dataset_discovery.adapters.handoff_errors import classify_handoff_error
 from lyme_gap_atlas_dataset_discovery.adapters.snowflake_handoff import (
     SnowflakeHumanHandoffClient,
 )
@@ -85,21 +87,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     try:
         with _open_connection(args.connection) as connection:
-            service = HumanReviewService(SnowflakeHumanReviewRepository(connection))
             result: BaseModel
-            if args.command == "list":
-                result = service.list_pending(
-                    args.run_id, after_rank=args.after_rank, limit=args.limit
-                )
-            elif args.command == "show":
-                result = service.show(args.recommendation_version_id)
-            elif args.command == "history":
-                result = service.history(
-                    args.recommendation_version_id,
-                    after_sequence=args.after_sequence,
-                    limit=args.limit,
-                )
-            elif args.command == "handoff":
+            if args.command == "handoff":
                 result = HumanHandoffService(SnowflakeHumanHandoffClient(connection)).submit(
                     args.recommendation_version_id, args.review_event_id
                 )
@@ -111,29 +100,37 @@ def main(argv: Sequence[str] | None = None) -> int:
                     raise KeyError(args.recommendation_version_id)
                 result = status
             else:
-                result = service.decide(
-                    args.recommendation_version_id,
-                    _DECISIONS[args.command],
-                    rationale=args.rationale,
-                    expected_prior_event_id=args.expected_event_id,
-                    conditions=tuple(args.condition),
-                    correction_of_event_id=args.correction_of_event_id,
-                )
+                service = HumanReviewService(SnowflakeHumanReviewRepository(connection))
+                if args.command == "list":
+                    result = service.list_pending(
+                        args.run_id, after_rank=args.after_rank, limit=args.limit
+                    )
+                elif args.command == "show":
+                    result = service.show(args.recommendation_version_id)
+                elif args.command == "history":
+                    result = service.history(
+                        args.recommendation_version_id,
+                        after_sequence=args.after_sequence,
+                        limit=args.limit,
+                    )
+                else:
+                    result = service.decide(
+                        args.recommendation_version_id,
+                        _DECISIONS[args.command],
+                        rationale=args.rationale,
+                        expected_prior_event_id=args.expected_event_id,
+                        conditions=tuple(args.condition),
+                        correction_of_event_id=args.correction_of_event_id,
+                    )
         print(result.model_dump_json(indent=2))
         return 0
     except HandoffOperationError as error:
-        if error.kind == HandoffFailureKind.RETRYABLE_FAILURE:
-            print(
-                "Handoff RETRYABLE_FAILURE: read handoff-status, then retry only the same "
-                "version and review event after connection recovery.",
-                file=sys.stderr,
-            )
-            return 1
-        print(
-            "Handoff TERMINAL_FAILURE: resolve the governed cause before resubmitting.",
-            file=sys.stderr,
-        )
-        return 2
+        return _handoff_failure_exit(error)
+    except (Error, TimeoutError, ConnectionError) as error:
+        if args.command in {"handoff", "handoff-status"}:
+            return _handoff_failure_exit(classify_handoff_error(error))
+        print(f"Review operation failed: {type(error).__name__}", file=sys.stderr)
+        return 1
     except (KeyError, PermissionError, ValueError) as error:
         print(f"Review request refused: {error}", file=sys.stderr)
         return 2
@@ -141,6 +138,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Connector errors may include SQL or account context. Never print them verbatim.
         print(f"Review operation failed: {type(error).__name__}", file=sys.stderr)
         return 1
+
+
+def _handoff_failure_exit(error: HandoffOperationError) -> int:
+    if error.kind == HandoffFailureKind.RETRYABLE_FAILURE:
+        print(
+            "Handoff RETRYABLE_FAILURE: read handoff-status, then retry only the same "
+            "version and review event after connection recovery.",
+            file=sys.stderr,
+        )
+        return 1
+    print(
+        "Handoff TERMINAL_FAILURE: resolve the governed cause before resubmitting.",
+        file=sys.stderr,
+    )
+    return 2
 
 
 if __name__ == "__main__":
