@@ -157,3 +157,16 @@ attempt and reported tokens/spend are retained before recording a candidate
 outcome. A response without trustworthy usage or with a different model ID
 stops the run, because the reviewed price cannot be applied. Reported usage
 above the remaining allowance produces `BUDGET_STOPPED` with measured counters.
+
+
+### Deterministic evaluation and trace contract extension
+
+The credential-free v2 corpus and existing runners are documented in
+[the evaluation guide](../../../eval/README.md#offline-contract-corpus-v2).
+They exercise classification eligibility, fixed-adapter receipt integrity and
+explicit human handoff recovery over synthetic transport responses. Report
+scope is DETERMINISTIC_FIXTURE; neither semantic quality nor hosted acceptance
+is implied by a passing aggregate gate. Node spans correlate canonical
+prompt/tool version maps using SHA-256 rather than raw map values, alongside
+the configured price-table version. Full versions remain in persisted run
+metadata; remote Arize receipt still requires independent exact-SHA proof.

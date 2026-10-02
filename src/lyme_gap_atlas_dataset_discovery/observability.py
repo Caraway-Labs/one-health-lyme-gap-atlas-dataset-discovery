@@ -1,6 +1,7 @@
 """Allowlisted graph telemetry; candidate text and model output never enter spans."""
 
 import hashlib
+import json
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 
@@ -23,6 +24,7 @@ _STRING_FIELDS = (
     "model_provider",
     "model_id",
     "model_fingerprint",
+    "price_table_version",
     "eval_version",
     "trace_id",
     "host_session_id",
@@ -105,6 +107,14 @@ def traced_node(
                 value = state.get(field)
                 if isinstance(value, str):
                     span.set_attribute(f"atlas.discovery.{field}", value)
+            for versions_field in ("prompt_versions", "tool_versions"):
+                versions = state.get(versions_field)
+                if isinstance(versions, dict):
+                    canonical = json.dumps(versions, sort_keys=True, separators=(",", ":"))
+                    span.set_attribute(
+                        f"atlas.discovery.{versions_field}_sha256",
+                        hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+                    )
             candidate_id = state.get("current_candidate_id")
             if isinstance(candidate_id, str):
                 span.set_attribute(

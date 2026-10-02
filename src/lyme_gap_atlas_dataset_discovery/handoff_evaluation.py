@@ -7,14 +7,22 @@ from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, model_validator
+from snowflake.connector.errors import ProgrammingError
 
 from .adapters.fake_handoff import FakeHumanHandoffClient
 from .adapters.fake_review import FakeHumanReviewRepository
-from .domain.handoff import AcquisitionBoundary, HandoffDisposition
+from .adapters.snowflake_handoff import SnowflakeHumanHandoffClient
+from .domain.handoff import (
+    AcquisitionBoundary,
+    HandoffDisposition,
+    HandoffFailureKind,
+    HandoffOperationError,
+)
 from .domain.models import EvidenceRef, ObservedFact, StrictModel
 from .domain.ranking import Dimension, PriorityBucket, RankingDimensions, Relationship
 from .domain.review import ReviewDecision, ReviewDetail, ReviewEvidence, ReviewState
 from .evaluation import CaseResult, EvaluationReport
+from .evaluation_fixtures import OfflineConnection
 from .handoff_service import HumanHandoffService
 from .review_service import HumanReviewService
 
@@ -45,9 +53,20 @@ class HandoffEvaluationCase(StrictModel):
         return self
 
 
+class HandoffRecoveryCase(StrictModel):
+    case_id: str = Field(min_length=1)
+    failure: Literal["TIMEOUT", "CONNECTION_RESET", "AUTHORIZATION", "AUTHENTICATION", "UNKNOWN"]
+    committed: bool = False
+    explicit_replay: bool = False
+    expected_failure_kind: HandoffFailureKind
+    expected_status_present: bool
+    expected_write_calls: int = Field(ge=1, le=2)
+
+
 class HandoffEvaluationCorpus(StrictModel):
     corpus_version: str = Field(min_length=1)
     handoff_cases: tuple[HandoffEvaluationCase, ...] = Field(min_length=1)
+    recovery_cases: tuple[HandoffRecoveryCase, ...] = ()
 
 
 def _detail(case: HandoffEvaluationCase, version_id: str) -> ReviewDetail:
@@ -161,15 +180,112 @@ def evaluate_handoff_case(case: HandoffEvaluationCase) -> CaseResult:
     )
 
 
+def evaluate_recovery_case(case: HandoffRecoveryCase) -> CaseResult:
+    """Real human client/service, synthetic transport; recovery is explicitly invoked."""
+    version_id = hashlib.sha256(f"version:{case.case_id}".encode()).hexdigest()
+    event_id = hashlib.sha256(f"review:{case.case_id}".encode()).hexdigest()
+    key = f"handoff-v1:{version_id}"
+    payload = {
+        "handoff_id": hashlib.sha256(key.encode()).hexdigest(),
+        "operation_key": key,
+        "recommendation_version_id": version_id,
+        "review_event_id": event_id,
+        "relationship_type": "DISTINCT",
+        "disposition": "HANDED_OFF",
+        "investigation_status": "PENDING",
+        "acquisition_boundary": "INVESTIGATE_BEFORE_ACQUISITION",
+    }
+    principal = (
+        "SYNTHETIC_REVIEWER",
+        "USER_PERSON",
+        "OH_LYME_DEV_DATASET_DISCOVERY_REVIEWER",
+        "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+        "FIXTURE_WH",
+    )
+    error: Exception = (
+        TimeoutError("synthetic private transport marker")
+        if case.failure == "TIMEOUT"
+        else ConnectionResetError("synthetic private transport marker")
+        if case.failure == "CONNECTION_RESET"
+        else ProgrammingError(
+            msg="synthetic private transport marker",
+            sqlstate={"AUTHORIZATION": "42501", "AUTHENTICATION": "28000", "UNKNOWN": "P0001"}[
+                case.failure
+            ],
+        )
+    )
+    status_row = tuple(payload.values()) + ("2026-01-01T00:00:00Z",)
+    responses: list[list[tuple[object, ...]] | Exception] = [
+        [principal],
+        [principal],
+        error,
+        [principal],
+        [status_row] if case.committed else [],
+    ]
+    if case.explicit_replay:
+        responses.extend([[principal], [(payload,)]])
+    connection = OfflineConnection(responses)
+    failures: list[str] = []
+    service = HumanHandoffService(SnowflakeHumanHandoffClient(connection))
+    try:
+        service.submit(version_id, event_id)
+    except HandoffOperationError as caught:
+        if caught.kind != case.expected_failure_kind:
+            failures.append("handoff_failure_kind_mismatch")
+        if str(caught) != caught.kind.value or not caught.__suppress_context__:
+            failures.append("handoff_error_not_sanitized")
+        if len([call for call in connection.calls if call[0].startswith("CALL ")]) != 1:
+            failures.append("automatic_handoff_resubmission")
+        status = service.status(version_id)
+        if case.explicit_replay:
+            if caught.kind != HandoffFailureKind.RETRYABLE_FAILURE or status is not None:
+                failures.append("unsafe_explicit_replay")
+            else:
+                receipt = service.submit(version_id, event_id)
+                if receipt.review_event_id != event_id or receipt.operation_key != key:
+                    failures.append("handoff_replay_identity_mismatch")
+        if (status is not None) != case.expected_status_present:
+            failures.append("handoff_recovery_status_mismatch")
+        if status is not None and (
+            status.review_event_id != event_id
+            or status.recommendation_version_id != version_id
+            or status.handoff_id != payload["handoff_id"]
+        ):
+            failures.append("handoff_status_identity_mismatch")
+    else:
+        failures.append("unexpected_handoff_success")
+    writes = [call for call in connection.calls if call[0].startswith("CALL ")]
+    if len(writes) != case.expected_write_calls:
+        failures.append("handoff_write_count_mismatch")
+    if any(
+        sql != "CALL GOVERNANCE.SP_HANDOFF_DATASET_DISCOVERY_RECOMMENDATION(%s, %s)"
+        or params != (version_id, event_id)
+        or timeout != 30
+        for sql, params, timeout in writes
+    ):
+        failures.append("handoff_original_identity_lost")
+    if connection.closed_cursors != len(connection.calls) or connection.responses:
+        failures.append("handoff_transport_bound_mismatch")
+    return CaseResult(
+        case_id=case.case_id,
+        slice="handoff_transport_recovery",
+        passed=not failures,
+        failures=tuple(failures),
+    )
+
+
 def load_handoff_corpus(path: Path) -> HandoffEvaluationCorpus:
     return HandoffEvaluationCorpus.model_validate(json.loads(path.read_text(encoding="utf-8")))
 
 
 def evaluate_handoff_corpus(corpus: HandoffEvaluationCorpus) -> EvaluationReport:
-    ids = [case.case_id for case in corpus.handoff_cases]
+    ids = [case.case_id for case in corpus.handoff_cases] + [
+        case.case_id for case in corpus.recovery_cases
+    ]
     if len(ids) != len(set(ids)):
         raise ValueError("duplicate handoff evaluation case ID")
     results = tuple(evaluate_handoff_case(case) for case in corpus.handoff_cases)
+    results += tuple(evaluate_recovery_case(case) for case in corpus.recovery_cases)
     return EvaluationReport(
         corpus_version=corpus.corpus_version,
         passed=all(result.passed for result in results),

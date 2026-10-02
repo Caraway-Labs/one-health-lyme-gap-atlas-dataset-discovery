@@ -3,12 +3,16 @@
 import json
 import sys
 from pathlib import Path
+from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
+from .adapters.snowflake_repository import SnowflakeRecommendationRepository
 from .domain.analysis import AvailableObservation, CandidateAnalysis, validate_analysis
-from .domain.models import StrictModel
+from .domain.models import RecommendationWriteReceipt, StrictModel
+from .domain.persistence import RecommendationWrite
 from .domain.ranking import PriorityBucket, PriorityInput, rank_candidate
+from .evaluation_fixtures import OfflineConnection
 from .graph.planner import validate_dimension_evidence
 
 
@@ -63,9 +67,37 @@ class EvaluationCase(StrictModel):
         return self
 
 
+class ReceiptEvaluationCase(StrictModel):
+    case_id: str = Field(min_length=1)
+    phase: Literal["COMMIT", "LOOKUP"]
+    mutation: Literal[
+        "NONE",
+        "operation_key",
+        "recommendation_id",
+        "recommendation_version_id",
+        "run_id",
+        "resource_key",
+        "equivalent_to_version_id",
+        "assertion_sha256",
+        "evidence_observation_ids",
+        "proposal_ids",
+        "DUPLICATE_ROWS",
+        "INVALID_ARRAY",
+    ] = "NONE"
+    expected_valid: bool
+
+
 class EvaluationCorpus(StrictModel):
     corpus_version: str = Field(min_length=1)
     cases: tuple[EvaluationCase, ...] = Field(min_length=1)
+    receipt_request: RecommendationWrite | None = None
+    receipt_cases: tuple[ReceiptEvaluationCase, ...] = ()
+
+    @model_validator(mode="after")
+    def receipt_input_present(self) -> "EvaluationCorpus":
+        if self.receipt_cases and self.receipt_request is None:
+            raise ValueError("receipt cases require a validated synthetic request")
+        return self
 
 
 class CaseResult(StrictModel):
@@ -76,6 +108,9 @@ class CaseResult(StrictModel):
 
 
 class EvaluationReport(StrictModel):
+    evaluation_scope: Literal["DETERMINISTIC_FIXTURE"] = "DETERMINISTIC_FIXTURE"
+    semantic_quality_accepted: Literal[False] = False
+    hosted_acceptance: Literal[False] = False
     corpus_version: str
     passed: bool
     case_results: tuple[CaseResult, ...]
@@ -136,11 +171,98 @@ def evaluate_case(case: EvaluationCase) -> CaseResult:
     )
 
 
+def evaluate_receipt_case(case: ReceiptEvaluationCase, request: RecommendationWrite) -> CaseResult:
+    """Exercise the real fixed adapter with synthetic connector responses only."""
+    expected = RecommendationWriteReceipt(
+        operation_key=request.operation_key,
+        identity=request.identity,
+        assertion_sha256=request.assertion_sha256,
+        evidence_observation_ids=request.evidence_observation_ids,
+        proposal_ids=request.proposal_ids,
+    )
+    payload = expected.model_dump(mode="json")
+    mutation = case.mutation
+    if mutation in type(request.identity).model_fields:
+        payload["identity"][mutation] = "different-identity"
+    elif mutation == "assertion_sha256":
+        payload[mutation] = "f" * 64
+    elif mutation in {"evidence_observation_ids", "proposal_ids"}:
+        payload[mutation] = ["different-reference"]
+    elif mutation == "operation_key":
+        payload[mutation] = "different-operation"
+    elif mutation == "INVALID_ARRAY":
+        payload["evidence_observation_ids"] = "scalar"
+    rows: list[tuple[Any, ...]]
+    if case.phase == "COMMIT":
+        rows = [(payload,)]
+    else:
+        identity = payload["identity"]
+        rows = [
+            (
+                payload["operation_key"],
+                identity["recommendation_id"],
+                identity["recommendation_version_id"],
+                identity["run_id"],
+                identity["resource_key"],
+                identity["equivalent_to_version_id"],
+                payload["assertion_sha256"],
+                payload["evidence_observation_ids"],
+                payload["proposal_ids"],
+            )
+        ]
+    if mutation == "DUPLICATE_ROWS":
+        rows *= 2
+    connection = OfflineConnection([rows])
+    repository = SnowflakeRecommendationRepository(connection)
+    failures: list[str] = []
+    try:
+        actual = (
+            repository.save_recommendation(request)
+            if case.phase == "COMMIT"
+            else repository.get_recommendation(request.operation_key)
+        )
+    except ValueError:
+        valid = False
+    else:
+        valid = True
+        if actual != expected:
+            failures.append("accepted_receipt_binding_mismatch")
+    if valid != case.expected_valid:
+        failures.append("receipt_validity_mismatch")
+    if connection.closed_cursors != 1 or len(connection.calls) != 1:
+        failures.append("receipt_transport_bound_mismatch")
+    elif case.phase == "COMMIT":
+        sql, params, timeout = connection.calls[0]
+        if (
+            sql != "CALL DATASET_DISCOVERY.SP_COMMIT_RECOMMENDATION(%s)"
+            or params != (request.model_dump_json(),)
+            or timeout != 30
+        ):
+            failures.append("receipt_write_contract_mismatch")
+    elif (
+        "FROM DATASET_DISCOVERY.V_RECOMMENDATION_RECEIPTS WHERE operation_key = %s"
+        not in connection.calls[0][0]
+        or connection.calls[0][1] != (request.operation_key,)
+        or connection.calls[0][2] != 15
+    ):
+        failures.append("receipt_read_contract_mismatch")
+    return CaseResult(
+        case_id=case.case_id,
+        slice="receipt_integrity",
+        passed=not failures,
+        failures=tuple(failures),
+    )
+
+
 def evaluate_corpus(corpus: EvaluationCorpus) -> EvaluationReport:
-    ids = [case.case_id for case in corpus.cases]
+    ids = [case.case_id for case in corpus.cases] + [case.case_id for case in corpus.receipt_cases]
     if len(ids) != len(set(ids)):
         raise ValueError("duplicate evaluation case ID")
     results = tuple(evaluate_case(case) for case in corpus.cases)
+    if corpus.receipt_request is not None:
+        results += tuple(
+            evaluate_receipt_case(case, corpus.receipt_request) for case in corpus.receipt_cases
+        )
     return EvaluationReport(
         corpus_version=corpus.corpus_version,
         passed=all(result.passed for result in results),
