@@ -12,6 +12,7 @@ from typing import Any, cast
 from langgraph.graph import END, START, StateGraph
 
 from lyme_gap_atlas_dataset_discovery.domain.analysis import (
+    RECOMMENDABLE_CLASSIFICATIONS,
     CandidateAnalysis,
     render_rationale,
     validate_analysis,
@@ -591,6 +592,14 @@ def build_graph(deps: GraphDependencies) -> Any:
         (analysis, dimensions), usage = _charge_model_result(
             response, usage, state["limits"], allowance
         )
+        if analysis.classification not in RECOMMENDABLE_CLASSIFICATIONS:
+            return {
+                "usage": usage,
+                "current_analysis": analysis,
+                "current_model_diagnostic": response.usage.diagnostic,
+                "current_model_usage": response.usage,
+                "candidate_outcome_reason": analysis.classification.value,
+            }
         version_id = _stable_id("recommendation-version-v1", state["run_id"], _current(state))
         ranking_input = PriorityInput(
             resource_key=_current(state),

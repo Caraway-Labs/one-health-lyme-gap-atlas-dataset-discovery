@@ -1074,3 +1074,48 @@ def test_invalid_model_response_over_budget_stops_with_measured_spend() -> None:
     assert result["usage"].estimated_spend_cents == 3
     assert repository.finalizations["run-1"].budget_usage["estimated_spend_cents"] == 3
     assert not repository.recommendations
+
+
+@pytest.mark.parametrize("classification", list(Classification))
+def test_classification_controls_recommendation_eligibility_and_continues(
+    classification: Classification,
+) -> None:
+    candidate, observations, plan = fixture("classified")
+    good, good_observations, good_plan = fixture("following")
+    plan = replace(
+        plan, analysis=plan.analysis.model_copy(update={"classification": classification})
+    )
+    repository = FakeRecommendationRepository()
+    result = build_graph(
+        GraphDependencies(
+            reader=FakeCandidateReader(
+                candidates=(candidate, good),
+                observations={"classified": observations, "following": good_observations},
+            ),
+            repository=repository,
+            planner=FakeCandidatePlanner({"classified": plan, "following": good_plan}),
+        )
+    ).invoke(input_state(), config={"recursion_limit": 100})
+    # A positive, cited relevance score cannot override an abstaining classification.
+    assert plan.dimensions.relevance.value == 2
+    bundles = {
+        item.identity.resource_key: item for item in repository.recommendation_bundles.values()
+    }
+    assert result["final_status"] == "SUCCEEDED_WITH_RECOMMENDATIONS"
+    assert "following" in bundles
+    if classification in {Classification.RELEVANT, Classification.POSSIBLY_RELEVANT}:
+        assert bundles["classified"].analysis.classification == classification
+        assert bundles["classified"].priority.bucket.value == "LOW"
+        assert bundles["classified"].priority.score == 0
+        assert not repository.outcomes
+        assert result["usage"].model_calls == 8
+    else:
+        assert "classified" not in bundles
+        assert result["processed_candidate_outcomes"] == (classification.value,)
+        outcome = next(iter(repository.outcomes.values()))
+        assert outcome.decision_record is not None
+        assert outcome.decision_record.classification == classification.value
+        assert outcome.outcome == classification.value
+        # Relationship/classification only: rationale and proposals are skipped.
+        assert result["usage"].model_calls == 6
+    assert result["processed_count"] == 2

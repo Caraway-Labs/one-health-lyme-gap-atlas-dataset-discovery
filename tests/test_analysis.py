@@ -127,3 +127,34 @@ def test_catalog_instruction_cannot_become_uncited_rationale() -> None:
     )
     with pytest.raises(ValueError, match="needs observed support"):
         validate_analysis(analysis, available_evidence=(OBSERVATION,))
+
+
+@pytest.mark.parametrize("matching_second_fact", [False, True])
+def test_every_observed_rationale_citation_supports_exact_claim(
+    matching_second_fact: bool,
+) -> None:
+    second_ref = EVIDENCE.model_copy(update={"observation_id": "obs-2"})
+    field = "publisher" if matching_second_fact else "title"
+    value = "Agency" if matching_second_fact else "Tick habitat dataset"
+    second = AvailableObservation(reference=second_ref, field_values={field: value})
+    analysis = valid_analysis().model_copy(
+        update={
+            "observed_facts": (
+                *valid_analysis().observed_facts,
+                ObservedFact(field=field, value=value, evidence=second_ref),
+            ),
+            "rationale_claims": (
+                RationaleClaim(
+                    field="publisher",
+                    text="Agency",
+                    kind="OBSERVED",
+                    supporting_observation_ids=("obs-1", "obs-2"),
+                ),
+            ),
+        }
+    )
+    if matching_second_fact:
+        validate_analysis(analysis, available_evidence=(OBSERVATION, second))
+    else:
+        with pytest.raises(ValueError, match="observed rationale differs"):
+            validate_analysis(analysis, available_evidence=(OBSERVATION, second))

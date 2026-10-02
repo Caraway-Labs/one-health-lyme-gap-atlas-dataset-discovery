@@ -6,7 +6,7 @@ from enum import StrEnum
 
 from pydantic import Field, model_validator
 
-from .analysis import CandidateAnalysis, render_rationale
+from .analysis import RECOMMENDABLE_CLASSIFICATIONS, CandidateAnalysis, render_rationale
 from .models import RecommendationIdentity, StrictModel
 from .ranking import PriorityInput, PriorityResult, rank_candidate
 from .relationships import RelationshipResult
@@ -58,6 +58,8 @@ class RecommendationWrite(StrictModel):
 
     @model_validator(mode="after")
     def validate_bundle(self) -> "RecommendationWrite":
+        if self.analysis.classification not in RECOMMENDABLE_CLASSIFICATIONS:
+            raise ValueError("ineligible classification cannot be persisted as a recommendation")
         if self.analysis.identity.resource_key != self.identity.resource_key:
             raise ValueError("recommendation bundle candidate identity mismatch")
         if self.ranking_input.resource_key != self.identity.resource_key:

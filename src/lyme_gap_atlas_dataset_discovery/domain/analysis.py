@@ -15,6 +15,11 @@ class Classification(StrEnum):
     BLOCKED = "BLOCKED"
 
 
+RECOMMENDABLE_CLASSIFICATIONS = frozenset(
+    {Classification.RELEVANT, Classification.POSSIBLY_RELEVANT}
+)
+
+
 class RationaleClaim(StrictModel):
     field: str = Field(min_length=1, max_length=120)
     text: str = Field(min_length=1, max_length=500)
@@ -95,7 +100,7 @@ def validate_analysis(
                 raise ValueError("unknown rationale differs from recorded unknown")
         elif not citations or not citations.issubset(observed_ids):
             raise ValueError("rationale assertion needs observed support")
-        elif claim.kind == "OBSERVED" and not any(
+        elif claim.kind == "OBSERVED" and not all(
             (claim.field, claim.text, citation) in observed_claims for citation in citations
         ):
             raise ValueError("observed rationale differs from validated fact")
