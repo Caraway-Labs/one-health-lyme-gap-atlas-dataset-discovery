@@ -179,3 +179,65 @@ def test_duplicate_or_invalid_receipt_fails_closed() -> None:
                 outcome="INSUFFICIENT_EVIDENCE",
             )
         )
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "operation_key",
+        "recommendation_id",
+        "recommendation_version_id",
+        "run_id",
+        "resource_key",
+        "equivalent_to_version_id",
+        "assertion_sha256",
+        "evidence_observation_ids",
+        "proposal_ids",
+    ],
+)
+def test_write_rejects_well_formed_receipt_for_different_bundle(field_name: str) -> None:
+    request = recommendation("run-1", "version-1")
+    payload = {
+        "operation_key": request.operation_key,
+        "identity": request.identity.model_dump(),
+        "assertion_sha256": request.assertion_sha256,
+        "evidence_observation_ids": list(request.evidence_observation_ids),
+        "proposal_ids": list(request.proposal_ids),
+    }
+    if field_name in type(request.identity).model_fields:
+        payload["identity"][field_name] = "another-identity"
+    elif field_name == "assertion_sha256":
+        payload[field_name] = "f" * 64
+    elif field_name in {"evidence_observation_ids", "proposal_ids"}:
+        payload[field_name] = ["another-id"]
+    else:
+        payload[field_name] = "another-operation"
+    connection = StubConnection([[(json.dumps(payload),)]])
+    with pytest.raises(ValueError, match="differs from submitted bundle"):
+        SnowflakeRecommendationRepository(connection).save_recommendation(request)
+    assert len(connection.calls) == 1
+    assert connection.closed_cursors == 1
+
+
+def test_recovery_rejects_receipt_for_another_operation() -> None:
+    request = recommendation("run-1", "version-1")
+    connection = StubConnection(
+        [
+            [
+                (
+                    "another-operation",
+                    request.identity.recommendation_id,
+                    request.identity.recommendation_version_id,
+                    request.identity.run_id,
+                    request.identity.resource_key,
+                    None,
+                    request.assertion_sha256,
+                    '["obs-1"]',
+                    None,
+                )
+            ]
+        ]
+    )
+    with pytest.raises(ValueError, match="another operation"):
+        SnowflakeRecommendationRepository(connection).get_recommendation(request.operation_key)
+    assert connection.closed_cursors == 1
