@@ -95,7 +95,7 @@ def validate_analysis(
                 raise ValueError("unknown rationale differs from recorded unknown")
         elif not citations or not citations.issubset(observed_ids):
             raise ValueError("rationale assertion needs observed support")
-        elif claim.kind == "OBSERVED" and not any(
+        elif claim.kind == "OBSERVED" and not all(
             (claim.field, claim.text, citation) in observed_claims for citation in citations
         ):
             raise ValueError("observed rationale differs from validated fact")
