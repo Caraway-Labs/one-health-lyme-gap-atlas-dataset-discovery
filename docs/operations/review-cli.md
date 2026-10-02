@@ -1,4 +1,4 @@
-# Dataset Discovery human review CLI (v1 draft)
+# Dataset Discovery human review CLI (v1)
 
 This workflow is outside the inference graph. It requires data-owned V109, the
 approved ADR 0041 role/grants, and an individually authenticated Snowflake
@@ -54,3 +54,30 @@ investigation; controlled access has no automated acquisition. The governed
 queue and policy findings remain data-owned. `POLICY_BLOCKED` requires a
 separate reviewed hard prohibition. The reviewer connection cannot write the
 policy finding, source decision, source version, or ingestion tables.
+
+## Existing DEV lifecycle evidence and release gate
+
+Data #449 and #450 are closed following reviewed data PRs #502 and #503. The
+accepted ADR 0041 and protected DEV migrations establish separate runtime,
+reviewer and non-login write-owner roles. Historical DEV evidence includes a
+genuine hosted recommendation, individually authenticated acceptance, append-only
+review attribution, exact/conflicting handoff replay, concurrent intake and
+controlled rollback/retry. See the data-owned
+`docs/operations/dataset-discovery-handoff-dev-acceptance-2026-09-28.md` for exact
+identities and the explicitly owner-accepted contract-test substitutions. These
+are prior acceptance receipts, not new execution by this application revision.
+
+The existing typed input from #8 remains `RecommendationWrite`; #9 consumes its
+immutable version through `HumanReviewRepository` and `HumanReviewService`.
+The review detail retains observed facts, inferences, unknowns, evidence,
+relationship, dimensions, formula, rationale and stable provenance identities.
+`history` exports the bounded typed append-only events as JSON for evaluation.
+Feedback is recorded as attributable decisions and conditions; it does not
+change ranking weights, prompts, model policy or production search terms.
+
+Before a new write, verify the actual human session, exact version and latest
+review event, current protected DEV contract, and reviewed application release.
+Do not infer live authority from this document or issue closure. Do not replay a
+historical acceptance under a new event or invent a recommendation to prove
+the lifecycle. New live review/handoff writes and PROD promotion remain separate
+release gates.
