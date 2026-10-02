@@ -12,6 +12,15 @@ The command names were checked against `doctl version 1.175.0-release` on
 2026-09-26. Recheck `doctl harness-runtime <command> --help` with the version
 used for an actual operation; this document is not a CLI version pin.
 
+## Readiness scope
+
+See [readiness and remaining operator steps](../../docs/operations/readiness.md).
+Merged code, offline fixtures, historical hosted DEV acceptance and PROD readiness
+are separate evidence layers. This runbook is not a live-operation authorization.
+Both hosted profiles and their model fingerprints remain DEV-only. No new
+session, credential upload, live write, recurring trigger or PROD change is part
+of offline reconciliation.
+
 ## Session ledger and evidence
 
 For each manual or shadow attempt, record the following in the restricted
@@ -54,6 +63,43 @@ any resend. Do not manually insert migration or business receipts.
 4. Treat an unavailable exporter or missing trace as missing observability
    proof. A small SHADOW runtime proof may proceed with that gap recorded;
    scheduling still requires separate approval and evidence.
+
+## Session lifetime and platform cost controls
+
+The templates retain `idle_timeout: 10m`. This is an inactivity setting, not a
+ten-minute total session lifetime, shutdown guarantee or total-cost cap. Bootstrap,
+active work and later requests can outlast that interval. The graph's per-run
+elapsed/token/model-estimated-spend budgets start with a graph invocation; they
+do not bound session bootstrap, compute/workspace billing, Snowflake charges,
+other sessions, or repeated/concurrent invocations. One candidate at a time in a
+graph is not a global account/session concurrency lock. Deadline checks between
+operations do not roll back a business call that already committed.
+
+Before a real launch, the owner/operator must record:
+
+- approved overall exposure and the specific one-time workload, separately from
+  the existing per-run model estimate;
+- creation/start time and an explicit latest-stop deadline in UTC, including
+  bootstrap time, with a named monitoring operator and fallback contact;
+- observation checkpoints and the exact session ID, pause/cleanup action and
+  evidence-retention decision.
+
+Do not launch when that plan, secure credential handoff or budget is missing.
+Start an independent operator reminder/timer before creation and observe the
+session through bootstrap and execution. This runbook does **not** implement an
+automatic watchdog, enforce a total-lifetime deadline or provision a provider
+spend cap. A reminder is not enforcement. If the operator cannot monitor the
+window, postpone the run; do not substitute the idle timeout for supervision.
+
+After completion, failure, cancellation or the latest-stop deadline, request
+`doctl harness-runtime pause <session>` in the approved context and verify the
+returned/observed state with `show`. A pause request alone is not proof of a
+paused session. Reconcile possible in-flight commits before any retry. Preserve
+the evidence and follow the existing stale-session disposal procedure when the
+owner confirms removal is permitted. Pausing preserves the workspace; verify
+provider retention/billing outcomes separately rather than claiming spending
+stopped at the graph budget or idle timeout. Record observed stop time, final
+session state, resource retention and measured/estimated charges distinctly.
 
 ## Stop and incident response
 

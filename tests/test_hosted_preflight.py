@@ -7,6 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from lyme_gap_atlas_dataset_discovery.model_policy import LunaPriceTable, ModelPolicy
+
 SCRIPT = Path(__file__).resolve().parents[1] / "deploy/digitalocean/preflight.py"
 TEMPLATE = SCRIPT.parent / "langgraph-agent.template.json"
 spec = importlib.util.spec_from_file_location("hosted_preflight", SCRIPT)
@@ -17,7 +19,15 @@ spec.loader.exec_module(preflight)
 
 def environment() -> dict[str, str]:
     return {
-        **{name: "reviewed-nonsecret" for name in preflight.NONSECRET_VARS},
+        "ATLAS_DISCOVERY_SNAPSHOT_ID": "synthetic-snapshot",
+        "ATLAS_DISCOVERY_SEARCH_FINGERPRINT": "b" * 64,
+        "ATLAS_PRICE_TABLE_VERSION": LunaPriceTable.standard_v1().version,
+        "ATLAS_MODEL_CONFIG_FINGERPRINT": ModelPolicy.luna_low_v2().fingerprint,
+        "SNOWFLAKE_ACCOUNT": "synthetic-account",
+        "SNOWFLAKE_USER": "SYNTHETIC_SERVICE",
+        "SNOWFLAKE_ROLE": "OH_LYME_DEV_DATASET_DISCOVERY_RUNTIME",
+        "SNOWFLAKE_DATABASE": "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+        "SNOWFLAKE_WAREHOUSE": "FIXTURE_WH",
         **{name: "test-secret" for name in preflight.SECRET_VARS},
         "SNOWFLAKE_EGRESS_HOST": "account.snowflakecomputing.com",
     }
@@ -136,3 +146,106 @@ def test_preflight_uses_only_validation_and_dry_run_commands(
     assert any(args[:3] == ("doctl", "harness-runtime", "create") for args in calls)
     assert all("launch" not in args and "triggers" not in args for args in calls)
     assert all("create" not in args or "--dry-run" in args for args in calls)
+
+
+@pytest.mark.parametrize("profile", ["HOSTED_MANUAL", "SHADOW"])
+@pytest.mark.parametrize(
+    "name,value",
+    [
+        ("SNOWFLAKE_DATABASE", "ONE_HEALTH_LYME_GAP_ATLAS_PROD"),
+        ("SNOWFLAKE_ROLE", "OH_LYME_PROD_DATASET_DISCOVERY_RUNTIME"),
+        ("SNOWFLAKE_ROLE", "ACCOUNTADMIN"),
+        ("SNOWFLAKE_USER", "unreviewed principal"),
+        ("ATLAS_MODEL_CONFIG_FINGERPRINT", "0" * 64),
+        ("ATLAS_PRICE_TABLE_VERSION", "unreviewed-price"),
+        ("ATLAS_DISCOVERY_SEARCH_FINGERPRINT", "not-a-fingerprint"),
+    ],
+)
+def test_render_uses_existing_dev_runtime_configuration_gate(
+    profile: str,
+    name: str,
+    value: str,
+) -> None:
+    template_path = (
+        TEMPLATE if profile == "HOSTED_MANUAL" else SCRIPT.parent / "langgraph-shadow.template.json"
+    )
+    template = json.loads(template_path.read_text())
+    values = environment()
+    if profile == "SHADOW":
+        values["ATLAS_MODEL_CONFIG_FINGERPRINT"] = ModelPolicy.luna_low_v2_4096().fingerprint
+    values[name] = value
+    with pytest.raises(preflight.PreflightError, match="reviewed DEV contract"):
+        preflight.render_spec(template, "a" * 40, values, profile=profile)
+
+
+@pytest.mark.parametrize("field,value", [("size", "unreviewed-size"), ("idle_timeout", "60m")])
+def test_session_template_changes_need_review(field: str, value: str) -> None:
+    template = json.loads(TEMPLATE.read_text())
+    template[field] = value
+    with pytest.raises(preflight.PreflightError, match="size or idle timeout"):
+        preflight.render_spec(template, "a" * 40, environment())
+
+
+def test_additional_egress_or_public_configuration_is_rejected() -> None:
+    template = json.loads(TEMPLATE.read_text())
+    template["egress"]["allow_hosts"].append("unreviewed.example")
+    with pytest.raises(preflight.PreflightError, match="host inventory"):
+        preflight.render_spec(template, "a" * 40, environment())
+    template = json.loads(TEMPLATE.read_text())
+    template["env"]["UNREVIEWED_TOOLSET"] = "tool-catalog"
+    with pytest.raises(preflight.PreflightError, match="environment.*inventory"):
+        preflight.render_spec(template, "a" * 40, environment())
+
+
+@pytest.mark.parametrize("profile", ["HOSTED_MANUAL", "SHADOW"])
+def test_offline_preflight_requires_no_cli_secret_file_or_connection(
+    monkeypatch: pytest.MonkeyPatch,
+    profile: str,
+) -> None:
+    template_path = (
+        TEMPLATE if profile == "HOSTED_MANUAL" else SCRIPT.parent / "langgraph-shadow.template.json"
+    )
+    values = environment()
+    if profile == "SHADOW":
+        values["ATLAS_MODEL_CONFIG_FINGERPRINT"] = ModelPolicy.luna_low_v2_4096().fingerprint
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
+    for name in preflight.SHADOW_SECRET_VARS:
+        monkeypatch.setenv(name + "_FILE", "nonexistent-private-file")
+
+    def forbidden(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("offline preflight invoked an external command or exporter")
+
+    monkeypatch.setattr(preflight, "_command", forbidden)
+    monkeypatch.setattr(
+        "lyme_gap_atlas_dataset_discovery.observability.configure_tracing", forbidden
+    )
+    report = preflight.offline_preflight("a" * 40, template_path, profile=profile)
+    assert report["proof_scope"] == "OFFLINE_CONFIGURATION"
+    assert report["runtime_acceptance"] is False
+    assert report["prod_readiness"] is False
+    assert report["session_lifetime_control"] == "OPERATOR_REQUIRED_NOT_ENFORCED"
+    assert report["platform_cost_cap"] == "NOT_ENFORCED_BY_GRAPH_OR_IDLE_TIMEOUT"
+    assert "test-secret" not in json.dumps(report)
+    assert "nonexistent-private-file" not in json.dumps(report)
+
+
+def test_offline_cli_does_not_require_account_or_expose_local_paths(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    for name, value in environment().items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr("sys.argv", ["preflight.py", "--offline", "--sha", "a" * 40])
+    assert preflight.main() == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["requested_sha"] == "a" * 40
+    missing = tmp_path / "private-missing-template.json"
+    monkeypatch.setattr(
+        "sys.argv", ["preflight.py", "--offline", "--sha", "a" * 40, "--template", str(missing)]
+    )
+    assert preflight.main() == 1
+    output = capsys.readouterr().out
+    assert "invalid or unavailable configuration" in output
+    assert str(tmp_path) not in output

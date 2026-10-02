@@ -1,4 +1,4 @@
-"""Read-only Harness Runtime preflight. Never creates a session or prints secrets."""
+"""Offline configuration checks and credentialed dry-run preflight; no session creation."""
 
 import argparse
 import copy
@@ -142,11 +142,13 @@ def verify_sequential_graph(profile: str = "HOSTED_MANUAL") -> None:
         "ATLAS_DD_DEV_SNOWFLAKE_PAT": "synthetic-preflight-only",
     }
     config = HostedConfig.from_environment(graph_env)
+    from lyme_gap_atlas_dataset_discovery.observability import isolated_fixture_tracing
 
     def no_connection(_config: HostedConfig) -> Any:
         raise PreflightError("graph compilation unexpectedly opened Snowflake")
 
-    nodes = set(build_hosted_graph(config, raw_connect=no_connection).get_graph().nodes)
+    with isolated_fixture_tracing():
+        nodes = set(build_hosted_graph(config, raw_connect=no_connection).get_graph().nodes)
     validate_graph_nodes(nodes)
 
 
@@ -160,6 +162,8 @@ def render_spec(
     """Resolve nonsecret fields only; doctl expands secret references at dry-run."""
     if not SHA.fullmatch(sha):
         raise PreflightError("FRAMEWORK_REPO_SHA must be an exact 40-character commit")
+    if template.get("size") != "mars-2vcpu-4gb" or template.get("idle_timeout") != "10m":
+        raise PreflightError("session size or idle timeout differs from reviewed template")
     if template.get("agent") != "langgraph":
         raise PreflightError("Harness Runtime must use the LangGraph framework")
     values = template.get("env")
@@ -219,9 +223,75 @@ def render_spec(
         raise PreflightError("egress allowlist contains an invalid or duplicate host")
     if any("KEY" in name or "TOKEN" in name or "PAT" in name for name in rendered["env"]):
         raise PreflightError("credential-like field found in public environment values")
+    expected_hosts = {
+        "api.openai.com",
+        "github.com",
+        "api.github.com",
+        "pypi.org",
+        "files.pythonhosted.org",
+        environment["SNOWFLAKE_EGRESS_HOST"],
+    }
+    if profile == "SHADOW":
+        expected_hosts.add("otlp.arize.com")
+    if set(hosts) != expected_hosts:
+        raise PreflightError("egress differs from reviewed host inventory")
+    expected_env = NONSECRET_VARS | {
+        "FRAMEWORK_REPO",
+        "FRAMEWORK_REPO_SHA",
+        "ATLAS_DISCOVERY_PROFILE",
+        "ATLAS_MODEL_PROVIDER",
+        "ATLAS_MODEL_ID",
+        "ATLAS_MODEL_API",
+        "ATLAS_MODEL_REASONING_EFFORT",
+        "ATLAS_MODEL_POLICY_VERSION",
+    }
+    if profile == "SHADOW":
+        expected_env |= {"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_RESOURCE_ATTRIBUTES"}
+    if set(rendered["env"]) != expected_env:
+        raise PreflightError("public environment differs from reviewed inventory")
+    from lyme_gap_atlas_dataset_discovery.graph.hosted import HostedConfig
+
+    try:
+        HostedConfig.from_environment(
+            {
+                **rendered["env"],
+                "ATLAS_DD_DEV_OPENAI_API_KEY": "synthetic-preflight-only",
+                "ATLAS_DD_DEV_SNOWFLAKE_PAT": "synthetic-preflight-only",
+            }
+        )
+    except ValueError:
+        raise PreflightError("rendered configuration differs from reviewed DEV contract") from None
     if rendered.get("permissions") != {"default": "ask"}:
         raise PreflightError("manual permission policy differs from reviewed contract")
     return rendered
+
+
+def offline_preflight(
+    sha: str,
+    template_path: Path,
+    *,
+    profile: str = "HOSTED_MANUAL",
+    environment: dict[str, str] | None = None,
+) -> dict[str, str | bool]:
+    """Validate local nonsecret configuration only; no CLI, secret file or connection."""
+    values = (
+        {name: os.environ.get(name, "") for name in NONSECRET_VARS | EGRESS_VARS}
+        if environment is None
+        else environment
+    )
+    template = json.loads(template_path.read_text(encoding="utf-8"))
+    render_spec(template, sha, values, profile=profile)
+    verify_sequential_graph(profile)
+    return {
+        "proof_scope": "OFFLINE_CONFIGURATION",
+        "requested_sha": sha,
+        "profile": profile,
+        "result": "OFFLINE_CONFIGURATION_PASSED_RUNTIME_PROOF_PENDING",
+        "runtime_acceptance": False,
+        "prod_readiness": False,
+        "session_lifetime_control": "OPERATOR_REQUIRED_NOT_ENFORCED",
+        "platform_cost_cap": "NOT_ENFORCED_BY_GRAPH_OR_IDLE_TIMEOUT",
+    }
 
 
 def preflight(
@@ -280,22 +350,35 @@ def preflight(
         "evaluated_sha": sha,
         "spec_template": str(template_path.relative_to(ROOT)),
         "result": "LOCAL_PREFLIGHT_PASSED_TEAM_CLONE_AND_DEV_PROOF_PENDING",
+        "proof_scope": "CREDENTIALED_DRY_RUN",
+        "session_lifetime_control": "OPERATOR_REQUIRED_NOT_ENFORCED",
+        "platform_cost_cap": "NOT_ENFORCED_BY_GRAPH_OR_IDLE_TIMEOUT",
     }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Read-only Dataset Discovery hosted preflight")
     parser.add_argument("--sha", required=True)
-    parser.add_argument("--account-uuid", required=True)
+    parser.add_argument("--account-uuid")
+    parser.add_argument("--offline", action="store_true", help="local nonsecret checks only")
     parser.add_argument(
         "--template", type=Path, default=ROOT / "deploy/digitalocean/langgraph-agent.template.json"
     )
     args = parser.parse_args()
     try:
-        print(json.dumps(preflight(args.sha, args.account_uuid, args.template), indent=2))
+        if args.offline:
+            report = offline_preflight(args.sha, args.template)
+        else:
+            if args.account_uuid is None:
+                raise PreflightError("credentialed preflight requires intended account UUID")
+            report = preflight(args.sha, args.account_uuid, args.template)
+        print(json.dumps(report, indent=2))
         return 0
-    except (PreflightError, OSError, ValueError) as error:
+    except PreflightError as error:
         print(f"Hosted preflight blocked: {error}")
+        return 1
+    except (OSError, ValueError):
+        print("Hosted preflight blocked: invalid or unavailable configuration")
         return 1
 
 

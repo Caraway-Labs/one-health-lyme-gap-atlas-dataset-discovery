@@ -6,16 +6,39 @@ read-only preflight. Neither creates a session, a trigger, a config, or a
 DigitalOcean resource. The root `langgraph.json` exports the reviewed
 sequential graph; the foundation `fixture_smoke` graph remains local-only.
 
-Local observation (2026-09-26): an older `1.160.1-release` binary is first on
-`PATH` and lacks `harness-runtime`. A separately installed `1.175.0-release`
-binary has `harness-runtime`, `validate`, and `create --dry-run`. With synthetic
-placeholder values, its local validator accepted the checked-in manifest and
-its dry run resolved `agent: langgraph`, the fixture SHA, and redacted secret
-slots. This proves CLI syntax and manifest shape only. The owner-designated
-account and local DEV model/Snowflake roles have since been verified; private
-team clone, managed secrets, and hosted execution remain unverified. The team's
-Harness Runtime prepayment gate currently reports blocked. Record the version used at deployment; do not pin a future
-CLI version into the application.
+Historical CLI/manual/SHADOW/Arize observations are recorded at their exact older
+SHAs in the issue and operations evidence. They do not establish acceptance for
+a newer revision, current account access, available budget or PROD readiness.
+[The readiness matrix](../../docs/operations/readiness.md) distinguishes merged
+code, offline proof, historical DEV acceptance and unavailable PROD readiness.
+Record the currently installed CLI version for each authorized operation;
+repository documentation does not pin a future provider CLI version.
+
+## Fully offline configuration check
+
+Set only the reviewed nonsecret configuration fields and account egress hostname,
+then run from the intended checkout:
+
+```powershell
+uv run python deploy/digitalocean/preflight.py --offline --sha <40-char-sha>
+uv run python deploy/digitalocean/shadow_preflight.py --offline --sha <40-char-sha>
+```
+
+These paths read the local template/manifest, validate nonsecret values through
+the same `HostedConfig` contract as the bootstrap, and compile the sequential
+graph with synthetic credentials and a no-connection callback. Context-local
+no-op tracing masks ambient exporters. They do not invoke doctl/gh/git, read
+secret files, contact providers, open Snowflake or verify a remote commit/team.
+The returned `requested_sha` is a supplied SHA, not proof of evaluation or
+remote deployment. `runtime_acceptance` and `prod_readiness` remain false.
+
+Both profile checks reject PROD/admin roles, an unreviewed model/price/search
+fingerprint, changed resource size/idle timeout, additional egress or public
+configuration, and permission changes. The existing template size, 10m idle
+setting, managed-secret inventory and profile-specific model policy are retained.
+These are checks of the existing contract, not new provider/source decisions.
+No total session lifetime or platform cost cap is enforced: see
+[operator lifetime controls](operations.md#session-lifetime-and-platform-cost-controls).
 
 ## Ordered gate before the first manual session
 
@@ -105,8 +128,10 @@ proof, `langgraph-shadow.template.json` and `shadow_preflight.py` gate a
 three-candidate, one-page sequential SHADOW run. Invoke
 `lyme_gap_atlas_dataset_discovery.hosted_shadow` with stable run, trace, and
 session IDs. Its ceilings are 12 model calls, 600 seconds, 36,000 input tokens,
-12,000 output tokens, and 36 cents estimated spend. The same Luna Low policy,
-DEV service principal, managed-secret slots, and egress allowlist apply.
+12,000 output tokens, and 36 cents estimated spend. The DEV service principal and recommendation-only authority are retained.
+HOSTED_MANUAL uses the v2 2048-token baseline; SHADOW uses the separately
+fingerprinted v2 Candidate B 4096-token variant. SHADOW adds the reviewed Arize
+secret slots and telemetry egress host; neither profile changes source policy.
 
 Run `uv run python deploy/digitalocean/shadow_preflight.py --sha
 <evaluated-40-char-sha> --account-uuid <owner-approved-team-uuid>` from the
@@ -134,7 +159,7 @@ hash is included in immutable run metadata so a replay with a different list
 fails the run fingerprint check. Omit the option for the normal keyset-ordered
 SHADOW sample. This is an operator-scoped sample, not a search-policy change.
 
-## Read-only executable check
+## Credentialed CLI validation and dry run
 
 From the repository root, after setting nonsecret environment fields and
 the local `ATLAS_DD_DEV_OPENAI_API_KEY_FILE` and
@@ -145,13 +170,17 @@ nonempty files outside the repository:
 uv run python deploy/digitalocean/preflight.py --sha <evaluated-40-char-sha> --account-uuid <owner-approved-team-uuid>
 ```
 
+This is a separate, explicitly authorized operator step after secure credential
+handoff and budget approval. No such invocation is part of the offline checks.
+A dry run is not proof that credentials remain local: doctl receives the secret
+file references and may resolve them during provider validation.
 The script passes those paths to `doctl create --dry-run` as `--secret NAME=@path`;
 it never places secret values in ordinary environment variables or the rendered
 spec. The rendered spec uses a noncredential sentinel for each secret slot
 because `doctl validate` resolves `${VAR}` before applying `--secret` flags;
 the dry run and real session must override both slots with file-backed flags.
 For a real session use the same file-backed `--secret` arguments.
-The script checks the local CLI, account, compiled graph node set, clean exact
+The credentialed script checks the local CLI, account, compiled graph node set, clean exact
 checkout, remote private commit, secret placement, and DigitalOcean validate
 and dry-run commands. It prints only version, account UUID, SHA and a bounded
 result. A passing local result still requires the team clone and DEV runtime
