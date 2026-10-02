@@ -127,9 +127,11 @@ def test_in_memory_graph_and_recovery_trace_contract(monkeypatch: pytest.MonkeyP
     lost_ack = next(case for case in graph.cases if case.id == "lost-ack-all-writes")
     recovery = load_handoff_corpus(CORPORA / "handoff.json").recovery_cases[0]
     with provider.get_tracer("offline-contract").start_as_current_span("offline.evaluation"):
-        assert evaluate_trajectory(classification, corpus_version="v2")["passed"]
-        assert evaluate_trajectory(lost_ack)["passed"]
-        assert evaluate_recovery_case(recovery).passed
+        assert evaluate_trajectory(classification, corpus_version="v2", trace_provider=provider)[
+            "passed"
+        ]
+        assert evaluate_trajectory(lost_ack, trace_provider=provider)["passed"]
+        assert evaluate_recovery_case(recovery, trace_provider=provider).passed
     spans = [span for span in exporter.get_finished_spans() if span.name != "offline.evaluation"]
     assert len({span.context.trace_id for span in spans}) == 1
     names = {span.name for span in spans}
@@ -222,8 +224,46 @@ def test_fixture_graph_never_configures_an_ambient_remote_exporter(
         raise AssertionError("offline evaluator configured remote tracing")
 
     monkeypatch.setattr(
-        "lyme_gap_atlas_dataset_discovery.observability.configure_dataset_discovery_tracing",
+        "lyme_gap_atlas_dataset_discovery.observability.configure_tracing",
         forbidden_configuration,
     )
     corpus = TrajectoryCorpus.model_validate_json((CORPORA / "graph_trajectories.json").read_text())
     assert evaluate_trajectory(corpus.cases[0])["passed"]
+
+
+def test_offline_execution_masks_configured_exporter_and_restores_caller(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lyme_gap_atlas_dataset_discovery.observability import (
+        isolated_fixture_tracing,
+        traced_operation,
+    )
+
+    ambient_exporter = InMemorySpanExporter()
+    ambient_provider = TracerProvider()
+    ambient_provider.add_span_processor(SimpleSpanProcessor(ambient_exporter))
+    monkeypatch.setattr(
+        "lyme_gap_atlas_dataset_discovery.observability.trace.get_tracer",
+        ambient_provider.get_tracer,
+    )
+    with traced_operation("model", "classification", "attempt", 1):
+        pass
+    before = ambient_exporter.get_finished_spans()
+    assert len(before) == 1  # The caller's configured exporter works before the fixture.
+    graph = TrajectoryCorpus.model_validate_json((CORPORA / "graph_trajectories.json").read_text())
+    assert evaluate_trajectory(graph.cases[1])["passed"]
+    handoff = load_handoff_corpus(CORPORA / "handoff.json")
+    assert evaluate_handoff_corpus(handoff).passed
+    assert ambient_exporter.get_finished_spans() == before
+    # An exceptional fixture context must also restore the caller's tracer.
+    with (
+        pytest.raises(RuntimeError, match="synthetic failure"),
+        isolated_fixture_tracing(),
+        traced_operation("model", "classification", "attempt", 1),
+    ):
+        raise RuntimeError("synthetic failure")
+    assert ambient_exporter.get_finished_spans() == before
+    with traced_operation("model", "classification", "attempt", 1):
+        pass
+    assert len(ambient_exporter.get_finished_spans()) == 2
+    ambient_provider.shutdown()

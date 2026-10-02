@@ -113,8 +113,11 @@ mutated-oracle tests demonstrate detection of wrong expected kinds, counts,
 status, classification and receipt validity. Existing semantic/provider policy
 and scientific suitability claims are unchanged.
 
-The offline graph runner suppresses exporter configuration from ambient settings;
-it does not create an OTLP connection. Tests supply an in-memory tracer explicitly.
+The offline graph and handoff evaluators use a context-local no-op provider
+through the full execution, including replay and recovery. They mask an already
+configured caller exporter and skip exporter configuration without changing the
+process-global provider. Context restoration is tested on success and failure.
+Trace tests explicitly inject an in-memory provider; CLI fixtures select no-op.
 The in-memory SDK trace contract tests capture classification abstention,
 commit-acknowledgment reconciliation and human handoff recovery. They check
 node/operation correlation and redaction without configuring an OTLP exporter.

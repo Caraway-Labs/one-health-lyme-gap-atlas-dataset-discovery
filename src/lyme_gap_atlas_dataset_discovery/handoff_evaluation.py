@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import Literal
 
+from opentelemetry import trace
 from pydantic import Field, model_validator
 from snowflake.connector.errors import ProgrammingError
 
@@ -24,6 +25,7 @@ from .domain.review import ReviewDecision, ReviewDetail, ReviewEvidence, ReviewS
 from .evaluation import CaseResult, EvaluationReport
 from .evaluation_fixtures import OfflineConnection
 from .handoff_service import HumanHandoffService
+from .observability import isolated_fixture_tracing
 from .review_service import HumanReviewService
 
 
@@ -129,6 +131,11 @@ def _detail(case: HandoffEvaluationCase, version_id: str) -> ReviewDetail:
 
 
 def evaluate_handoff_case(case: HandoffEvaluationCase) -> CaseResult:
+    with isolated_fixture_tracing():
+        return _evaluate_handoff_case(case)
+
+
+def _evaluate_handoff_case(case: HandoffEvaluationCase) -> CaseResult:
     failures: list[str] = []
     version_id = hashlib.sha256(f"handoff-eval-v1:{case.case_id}".encode()).hexdigest()
     detail = _detail(case, version_id)
@@ -180,7 +187,14 @@ def evaluate_handoff_case(case: HandoffEvaluationCase) -> CaseResult:
     )
 
 
-def evaluate_recovery_case(case: HandoffRecoveryCase) -> CaseResult:
+def evaluate_recovery_case(
+    case: HandoffRecoveryCase, *, trace_provider: trace.TracerProvider | None = None
+) -> CaseResult:
+    with isolated_fixture_tracing(trace_provider):
+        return _evaluate_recovery_case(case)
+
+
+def _evaluate_recovery_case(case: HandoffRecoveryCase) -> CaseResult:
     """Real human client/service, synthetic transport; recovery is explicitly invoked."""
     version_id = hashlib.sha256(f"version:{case.case_id}".encode()).hexdigest()
     event_id = hashlib.sha256(f"review:{case.case_id}".encode()).hexdigest()

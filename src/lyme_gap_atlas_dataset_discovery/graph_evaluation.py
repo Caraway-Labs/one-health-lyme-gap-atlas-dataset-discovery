@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
-from unittest.mock import patch
 
+from opentelemetry import trace
 from pydantic import Field
 
 from lyme_gap_atlas_dataset_discovery.adapters.fake import (
@@ -51,6 +51,7 @@ from lyme_gap_atlas_dataset_discovery.graph.planner import (
     UnmeteredModelResponse,
 )
 from lyme_gap_atlas_dataset_discovery.graph.sequential import GraphDependencies, build_graph
+from lyme_gap_atlas_dataset_discovery.observability import isolated_fixture_tracing
 
 
 class CandidateCase(StrictModel):
@@ -268,7 +269,17 @@ def _identity_links(item: CandidateCase, identity: CandidateIdentity) -> tuple[I
 
 
 def evaluate_case(
-    case: TrajectoryCase, *, corpus_version: Literal["v1", "v2"] = "v1"
+    case: TrajectoryCase,
+    *,
+    corpus_version: Literal["v1", "v2"] = "v1",
+    trace_provider: trace.TracerProvider | None = None,
+) -> dict[str, object]:
+    with isolated_fixture_tracing(trace_provider):
+        return _evaluate_case(case, corpus_version=corpus_version)
+
+
+def _evaluate_case(
+    case: TrajectoryCase, *, corpus_version: Literal["v1", "v2"]
 ) -> dict[str, object]:
     if len({item.id for item in case.candidates}) != len(case.candidates):
         raise ValueError("scenario candidate IDs must be unique")
@@ -289,21 +300,16 @@ def evaluate_case(
         behaviors={item.id: item.planner for item in case.candidates},
         fault=case.planner_fault,
     )
-    # A CLI fixture run must not configure a remote exporter from ambient settings.
-    # Tests can still supply an in-memory tracer through the existing OTEL API.
-    with patch(
-        "lyme_gap_atlas_dataset_discovery.observability.configure_dataset_discovery_tracing"
-    ):
-        graph = build_graph(
-            GraphDependencies(
-                reader=reader,
-                repository=repository,
-                planner=planner,
-                clock=lambda: datetime(2026, 9, 26, tzinfo=UTC),
-                cancellation_requested=lambda: case.cancelled,
-                sleep=lambda _: None,
-            )
+    graph = build_graph(
+        GraphDependencies(
+            reader=reader,
+            repository=repository,
+            planner=planner,
+            clock=lambda: datetime(2026, 9, 26, tzinfo=UTC),
+            cancellation_requested=lambda: case.cancelled,
+            sleep=lambda _: None,
         )
+    )
     limits = PROFILE_DEFAULTS[RunProfile.FIXTURE]
     limits = limits.model_copy(
         update={

@@ -19,10 +19,10 @@ The source fingerprints below identify the evaluator/trace/test inputs used for 
 | --- | --- |
 | [src/lyme_gap_atlas_dataset_discovery/evaluation.py](../../src/lyme_gap_atlas_dataset_discovery/evaluation.py) | `6380edcfe399caa4725559213dcc5985efb3ca7d17fb7bc1805fdb6ac53da52a` |
 | [src/lyme_gap_atlas_dataset_discovery/evaluation_fixtures.py](../../src/lyme_gap_atlas_dataset_discovery/evaluation_fixtures.py) | `0ccc649c8963de87b4d5c16af667163d53d89e6d15f94b20b2b6451cbb02a4e2` |
-| [src/lyme_gap_atlas_dataset_discovery/graph_evaluation.py](../../src/lyme_gap_atlas_dataset_discovery/graph_evaluation.py) | `2f82b3ea12fa17976b16f0c342d48a24af2f29ecba69f54cac81086235ededa8` |
-| [src/lyme_gap_atlas_dataset_discovery/handoff_evaluation.py](../../src/lyme_gap_atlas_dataset_discovery/handoff_evaluation.py) | `5a6dcb569a50dce2eeaf844380738dfe8f11da8df0e08d1ec611ac08b4446c78` |
-| [src/lyme_gap_atlas_dataset_discovery/observability.py](../../src/lyme_gap_atlas_dataset_discovery/observability.py) | `911489c86e4ac796a3236f56e8f8799907bb4f2690d6a1752d243450655a2509` |
-| [tests/test_offline_evaluation_contracts.py](../../tests/test_offline_evaluation_contracts.py) | `670b85dac79ed0f28ece4757aff67ba7115869a46d14b1f84cfe8bc404971d2d` |
+| [src/lyme_gap_atlas_dataset_discovery/graph_evaluation.py](../../src/lyme_gap_atlas_dataset_discovery/graph_evaluation.py) | `5d86cc7f65f6acc721885bb875f52e3260874cf44301ba1a0421fe82f5ccff27` |
+| [src/lyme_gap_atlas_dataset_discovery/handoff_evaluation.py](../../src/lyme_gap_atlas_dataset_discovery/handoff_evaluation.py) | `b31083821e97be71cb39a0adf0b2987f8df87d671fec083ab88d6c09c5591a90` |
+| [src/lyme_gap_atlas_dataset_discovery/observability.py](../../src/lyme_gap_atlas_dataset_discovery/observability.py) | `de22818c178b35dfa9648c42ce22ba17df92926630800a0b525495a62ee9eafc` |
+| [tests/test_offline_evaluation_contracts.py](../../tests/test_offline_evaluation_contracts.py) | `4ea53de176c526d7b12b965e6ecee7b58b485b9f89ae49db5ac1b13c827f3efd` |
 
 Reproduce with the commands in [the evaluation guide](../README.md#offline-contract-corpus-v2). Versioned v1 corpora remain unchanged. The in-memory span tests run as part of `uv run pytest -q`; they do not demonstrate Arize AX delivery.
 
