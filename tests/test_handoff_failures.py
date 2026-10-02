@@ -186,3 +186,57 @@ def test_cli_real_handoff_initialization_classifies_connector_failure(
     assert not any(sql.startswith("CALL ") for sql, _, _ in connection.calls)
     assert len(connection.calls) == (1 if stage == "initial_identity" else 0)
     assert connection.closed_cursors == (1 if stage == "initial_identity" else 0)
+
+
+@pytest.mark.parametrize("command", ["handoff", "handoff-status"])
+@pytest.mark.parametrize(
+    "error,kind,exit_code",
+    [
+        (
+            ProgrammingError(msg="private teardown SQL", sqlstate="42501"),
+            HandoffFailureKind.TERMINAL_FAILURE,
+            2,
+        ),
+        (
+            OperationalError(msg="private teardown timeout", errno=ER_CONNECTION_TIMEOUT),
+            HandoffFailureKind.RETRYABLE_FAILURE,
+            1,
+        ),
+    ],
+)
+def test_cli_teardown_failure_does_not_claim_rollback_or_retry_committed_handoff(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    command: str,
+    error: OperationalError | ProgrammingError,
+    kind: HandoffFailureKind,
+    exit_code: int,
+) -> None:
+    payload = receipt()
+    result_row = (
+        (payload,) if command == "handoff" else tuple(payload.values()) + ("2026-09-28T00:00:00Z",)
+    )
+    connection = StubConnection([[principal()], [principal()], [result_row]])
+
+    @contextmanager
+    def open_connection(_: str) -> Iterator[StubConnection]:
+        yield connection
+        # Business call returned a committed receipt before connection teardown failed.
+        raise error
+
+    monkeypatch.setattr(review_cli, "_open_connection", open_connection)
+    arguments = ["--connection", "TEST_REVIEWER", command, VERSION]
+    if command == "handoff":
+        arguments.extend(["--review-event-id", EVENT])
+    assert review_cli.main(arguments) == exit_code
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert kind.value in output.err
+    assert "handoff-status" in output.err
+    assert "private" not in output.err
+    assert "rollback" not in output.err
+    writes = [call for call in connection.calls if call[0].startswith("CALL ")]
+    assert len(writes) == (1 if command == "handoff" else 0)
+    if writes:
+        assert writes[0][1] == (VERSION, EVENT)
+    assert connection.closed_cursors == 3

@@ -149,7 +149,8 @@ def _handoff_failure_exit(error: HandoffOperationError) -> int:
         )
         return 1
     print(
-        "Handoff TERMINAL_FAILURE: resolve the governed cause before resubmitting.",
+        "Handoff TERMINAL_FAILURE: read handoff-status after connection recovery; "
+        "resolve the governed cause before resubmitting.",
         file=sys.stderr,
     )
     return 2

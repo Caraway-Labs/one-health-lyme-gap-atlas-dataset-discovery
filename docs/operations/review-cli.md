@@ -99,3 +99,10 @@ if no receipt exists, an authorized human may retry the same version and review
 event. Never replace an event, change an operation key or manufacture a failed
 row after an unknown outcome. Resolve a terminal governed cause and inspect
 current review state before any resubmission.
+
+Handoff commands initialize through the wrapped handoff human-session check.
+The same classification covers connection opening and teardown. A teardown
+failure can follow a committed receipt: the CLI does not claim rollback or
+successful delivery and does not submit again. Read the original version's
+status after recovery, including after a terminal teardown error, before any
+further governed action.
