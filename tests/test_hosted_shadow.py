@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from test_hosted_graph import environment
+from test_hosted_preflight import environment as preflight_environment
 
 from lyme_gap_atlas_dataset_discovery.graph.budgets import (
     BudgetExceeded,
@@ -94,7 +95,8 @@ def test_shadow_selected_candidates_are_bounded_and_part_of_run_identity() -> No
 
 def test_shadow_spec_is_separate_and_manual_preflight_rejects_it() -> None:
     template = json.loads(TEMPLATE.read_text(encoding="utf-8"))
-    values = {name: "reviewed-nonsecret" for name in preflight.NONSECRET_VARS}
+    values = preflight_environment()
+    values["ATLAS_MODEL_CONFIG_FINGERPRINT"] = ModelPolicy.luna_low_v2_4096().fingerprint
     values["SNOWFLAKE_EGRESS_HOST"] = "account.snowflakecomputing.com"
     rendered = preflight.render_spec(template, "a" * 40, values, profile="SHADOW")
     assert rendered["env"]["ATLAS_DISCOVERY_PROFILE"] == "SHADOW"
@@ -113,7 +115,8 @@ def test_shadow_spec_is_separate_and_manual_preflight_rejects_it() -> None:
 
 def test_shadow_rejects_missing_project_route_or_arize_egress() -> None:
     template = json.loads(TEMPLATE.read_text(encoding="utf-8"))
-    values = {name: "reviewed-nonsecret" for name in preflight.NONSECRET_VARS}
+    values = preflight_environment()
+    values["ATLAS_MODEL_CONFIG_FINGERPRINT"] = ModelPolicy.luna_low_v2_4096().fingerprint
     values["SNOWFLAKE_EGRESS_HOST"] = "account.snowflakecomputing.com"
     template["env"]["OTEL_RESOURCE_ATTRIBUTES"] = "service.name=wrong-project"
     with pytest.raises(preflight.PreflightError, match="routing"):
