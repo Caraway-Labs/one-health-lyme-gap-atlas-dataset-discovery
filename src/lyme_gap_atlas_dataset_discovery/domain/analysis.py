@@ -15,6 +15,11 @@ class Classification(StrEnum):
     BLOCKED = "BLOCKED"
 
 
+RECOMMENDABLE_CLASSIFICATIONS = frozenset(
+    {Classification.RELEVANT, Classification.POSSIBLY_RELEVANT}
+)
+
+
 class RationaleClaim(StrictModel):
     field: str = Field(min_length=1, max_length=120)
     text: str = Field(min_length=1, max_length=500)

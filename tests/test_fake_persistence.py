@@ -193,3 +193,39 @@ def test_finalization_recomputed_from_receipts_and_replay_safe() -> None:
         )
     with pytest.raises(ValueError, match="retry-eligible"):
         repository.create_run(operation_key="execution-b", run_id="run-b", retry_of_run_id="run-a")
+
+
+@pytest.mark.parametrize("classification", list(Classification))
+def test_direct_write_rejects_ineligible_classification_even_with_recomputed_hash(
+    classification: Classification,
+) -> None:
+    bundle = recommendation("run-a", "version-a")
+    analysis = bundle.analysis.model_copy(update={"classification": classification})
+    ranking_input = bundle.ranking_input.model_copy(
+        update={
+            "dimensions": RankingDimensions(
+                relevance=Dimension(value=2, supporting_observation_ids=("obs-1",)),
+                geography=Dimension(),
+                variables=Dimension(),
+                time=Dimension(),
+                provenance=Dimension(),
+                freshness=Dimension(),
+                rights_clarity=Dimension(),
+                complementarity=Dimension(),
+            )
+        }
+    )
+    priority = rank_candidate(ranking_input)
+    assert priority.score == 0
+    payload = bundle.model_dump()
+    payload.update(
+        analysis=analysis,
+        ranking_input=ranking_input,
+        priority=priority,
+        assertion_sha256=assertion_sha256(analysis, ranking_input, priority, bundle.relationship),
+    )
+    if classification in {Classification.RELEVANT, Classification.POSSIBLY_RELEVANT}:
+        assert RecommendationWrite.model_validate(payload).analysis.classification == classification
+    else:
+        with pytest.raises(ValueError, match="ineligible classification"):
+            RecommendationWrite.model_validate(payload)
