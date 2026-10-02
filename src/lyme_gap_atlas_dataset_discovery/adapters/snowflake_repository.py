@@ -143,7 +143,16 @@ class SnowflakeRecommendationRepository:
             "CALL DATASET_DISCOVERY.SP_COMMIT_RECOMMENDATION(%s)",
             (validated.model_dump_json(),),
         )
-        return RecommendationWriteReceipt.model_validate(result)
+        receipt = RecommendationWriteReceipt.model_validate(result)
+        if (
+            receipt.operation_key != validated.operation_key
+            or receipt.identity != validated.identity
+            or receipt.assertion_sha256 != validated.assertion_sha256
+            or receipt.evidence_observation_ids != validated.evidence_observation_ids
+            or receipt.proposal_ids != validated.proposal_ids
+        ):
+            raise ValueError("recommendation receipt differs from submitted bundle")
+        return receipt
 
     def get_recommendation(self, operation_key: str) -> RecommendationWriteReceipt | None:
         row = self._one(
@@ -155,7 +164,7 @@ class SnowflakeRecommendationRepository:
         )
         if row is None:
             return None
-        return RecommendationWriteReceipt(
+        receipt = RecommendationWriteReceipt(
             operation_key=row[0],
             identity=RecommendationIdentity(
                 recommendation_id=row[1],
@@ -168,6 +177,9 @@ class SnowflakeRecommendationRepository:
             evidence_observation_ids=tuple(_array(row[7])),
             proposal_ids=tuple(_array(row[8])) if row[8] is not None else (),
         )
+        if receipt.operation_key != operation_key:
+            raise ValueError("recommendation receipt view returned another operation")
+        return receipt
 
     def finalize_run(self, receipt: RunFinalizationReceipt) -> RunFinalizationReceipt:
         result = self._call(
