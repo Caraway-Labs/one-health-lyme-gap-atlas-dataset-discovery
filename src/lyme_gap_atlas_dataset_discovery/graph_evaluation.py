@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
+from opentelemetry import trace
 from pydantic import Field
 
 from lyme_gap_atlas_dataset_discovery.adapters.fake import (
@@ -50,10 +51,12 @@ from lyme_gap_atlas_dataset_discovery.graph.planner import (
     UnmeteredModelResponse,
 )
 from lyme_gap_atlas_dataset_discovery.graph.sequential import GraphDependencies, build_graph
+from lyme_gap_atlas_dataset_discovery.observability import isolated_fixture_tracing
 
 
 class CandidateCase(StrictModel):
     id: str = Field(min_length=1)
+    classification: Classification = Classification.RELEVANT
     evidence: bool = True
     governed_status: Literal["UNKNOWN", "ALREADY_GOVERNED"] = "UNKNOWN"
     planner: Literal["NORMAL", "INVALID", "UNMETERED"] = "NORMAL"
@@ -80,10 +83,11 @@ class TrajectoryCase(StrictModel):
     stop_reason: str | None = None
     expected_relationship: Relationship | None = None
     expected_priority_bucket: str | None = None
+    expected_priority_score: int | None = Field(default=None, ge=0)
 
 
 class TrajectoryCorpus(StrictModel):
-    version: Literal["v1"]
+    version: Literal["v1", "v2"]
     cases: tuple[TrajectoryCase, ...]
 
 
@@ -203,7 +207,7 @@ def _candidate(
     )
     analysis = CandidateAnalysis(
         identity=identity,
-        classification=Classification.RELEVANT,
+        classification=item.classification,
         observed_facts=(
             ObservedFact(field="title", value="Lyme surveillance", evidence=ref),
             ObservedFact(field="publisher", value="Agency", evidence=ref),
@@ -264,7 +268,19 @@ def _identity_links(item: CandidateCase, identity: CandidateIdentity) -> tuple[I
     )
 
 
-def evaluate_case(case: TrajectoryCase) -> dict[str, object]:
+def evaluate_case(
+    case: TrajectoryCase,
+    *,
+    corpus_version: Literal["v1", "v2"] = "v1",
+    trace_provider: trace.TracerProvider | None = None,
+) -> dict[str, object]:
+    with isolated_fixture_tracing(trace_provider):
+        return _evaluate_case(case, corpus_version=corpus_version)
+
+
+def _evaluate_case(
+    case: TrajectoryCase, *, corpus_version: Literal["v1", "v2"]
+) -> dict[str, object]:
     if len({item.id for item in case.candidates}) != len(case.candidates):
         raise ValueError("scenario candidate IDs must be unique")
     prepared = {item.id: _candidate(item) for item in case.candidates}
@@ -313,6 +329,9 @@ def evaluate_case(case: TrajectoryCase) -> dict[str, object]:
         "search_fingerprint": "c" * 64,
         "evidence_snapshot_id": "fixture-snapshot",
         "limits": limits,
+        "eval_version": f"graph-trajectories-{corpus_version}",
+        "prompt_versions": {"semantic": "fixture-semantic-v1"},
+        "tool_versions": {"reader": "fixture-reader-v1"},
     }
 
     def execute() -> tuple[tuple[str, ...], dict[str, Any]]:
@@ -356,7 +375,11 @@ def evaluate_case(case: TrajectoryCase) -> dict[str, object]:
         "stop_reason": (state.get("stop_reason"), case.stop_reason),
         "lost_ack_reconciled": (tuple(sorted(repository.lost)), tuple(sorted(case.lost_ack))),
     }
-    if case.expected_relationship is not None or case.expected_priority_bucket is not None:
+    if (
+        case.expected_relationship is not None
+        or case.expected_priority_bucket is not None
+        or case.expected_priority_score is not None
+    ):
         bundles = tuple(repository.recommendation_bundles.values())
         if len(bundles) != 1:
             errors.append("expected_one_ranked_relationship")
@@ -371,6 +394,17 @@ def evaluate_case(case: TrajectoryCase) -> dict[str, object]:
                 and bundles[0].priority.bucket.value != case.expected_priority_bucket
             ):
                 errors.append("priority_bucket")
+            if (
+                case.expected_priority_score is not None
+                and bundles[0].priority.score != case.expected_priority_score
+            ):
+                errors.append("priority_score")
+    expected_classifications = {item.id: item.classification for item in case.candidates}
+    if any(
+        bundle.analysis.classification != expected_classifications[bundle.identity.resource_key]
+        for bundle in repository.recommendation_bundles.values()
+    ):
+        errors.append("recommendation_classification_mismatch")
     errors.extend(key for key, (actual, expected) in checks.items() if actual != expected)
     if forbidden.intersection(nodes):
         errors.append("forbidden_authority_node")
@@ -394,9 +428,12 @@ def evaluate_corpus(path: Path) -> dict[str, object]:
     corpus = TrajectoryCorpus.model_validate_json(path.read_text(encoding="utf-8"))
     if len({case.id for case in corpus.cases}) != len(corpus.cases):
         raise ValueError("trajectory case IDs must be unique")
-    results = [evaluate_case(case) for case in corpus.cases]
+    results = [evaluate_case(case, corpus_version=corpus.version) for case in corpus.cases]
     return {
         "version": corpus.version,
+        "evaluation_scope": "DETERMINISTIC_FIXTURE",
+        "semantic_quality_accepted": False,
+        "hosted_acceptance": False,
         "passed": all(item["passed"] for item in results),
         "cases": results,
     }

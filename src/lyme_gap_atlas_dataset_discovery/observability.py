@@ -1,8 +1,10 @@
 """Allowlisted graph telemetry; candidate text and model output never enter spans."""
 
 import hashlib
+import json
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
+from contextvars import ContextVar
 
 from lyme_gap_atlas_shared.observability import configure_tracing
 from opentelemetry import trace
@@ -23,6 +25,7 @@ _STRING_FIELDS = (
     "model_provider",
     "model_id",
     "model_fingerprint",
+    "price_table_version",
     "eval_version",
     "trace_id",
     "host_session_id",
@@ -42,9 +45,35 @@ _OPERATION_NAMES = {
 }
 
 
+_fixture_provider: ContextVar[trace.TracerProvider | None] = ContextVar(
+    "atlas_discovery_fixture_trace_provider", default=None
+)
+
+
+@contextmanager
+def isolated_fixture_tracing(provider: trace.TracerProvider | None = None) -> Iterator[None]:
+    """Mask ambient exporters for this execution context without changing global OTEL.
+
+    Default fixture execution uses a no-op provider. Tests may explicitly supply
+    their own in-memory provider; inherited caller providers are never selected.
+    """
+    selected = trace.NoOpTracerProvider() if provider is None else provider
+    token = _fixture_provider.set(selected)
+    try:
+        yield
+    finally:
+        _fixture_provider.reset(token)
+
+
+def _discovery_tracer() -> trace.Tracer:
+    provider = _fixture_provider.get()
+    return trace.get_tracer(SERVICE_NAME) if provider is None else provider.get_tracer(SERVICE_NAME)
+
+
 def configure_dataset_discovery_tracing() -> None:
     """Reuse the shared OTLP exporter with the configured hosted destination."""
-    configure_tracing(SERVICE_NAME)
+    if _fixture_provider.get() is None:
+        configure_tracing(SERVICE_NAME)
 
 
 def flush_dataset_discovery_tracing() -> None:
@@ -71,7 +100,7 @@ def traced_operation(kind: str, operation: str, phase: str, attempt: int) -> Ite
         raise ValueError("unreviewed telemetry phase")
     if attempt < 1:
         raise ValueError("telemetry attempt must be positive")
-    tracer = trace.get_tracer(SERVICE_NAME)
+    tracer = _discovery_tracer()
     with tracer.start_as_current_span(
         f"dataset_discovery.{kind}.{operation}",
         record_exception=False,
@@ -93,9 +122,8 @@ def traced_operation(kind: str, operation: str, phase: str, attempt: int) -> Ite
 def traced_node(
     name: str, fn: Callable[[DatasetDiscoveryState], DatasetDiscoveryState]
 ) -> Callable[[DatasetDiscoveryState], DatasetDiscoveryState]:
-    tracer = trace.get_tracer(SERVICE_NAME)
-
     def invoke(state: DatasetDiscoveryState) -> DatasetDiscoveryState:
+        tracer = _discovery_tracer()
         with tracer.start_as_current_span(
             f"dataset_discovery.{name}",
             record_exception=False,
@@ -105,6 +133,14 @@ def traced_node(
                 value = state.get(field)
                 if isinstance(value, str):
                     span.set_attribute(f"atlas.discovery.{field}", value)
+            for versions_field in ("prompt_versions", "tool_versions"):
+                versions = state.get(versions_field)
+                if isinstance(versions, dict):
+                    canonical = json.dumps(versions, sort_keys=True, separators=(",", ":"))
+                    span.set_attribute(
+                        f"atlas.discovery.{versions_field}_sha256",
+                        hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+                    )
             candidate_id = state.get("current_candidate_id")
             if isinstance(candidate_id, str):
                 span.set_attribute(

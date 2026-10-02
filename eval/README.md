@@ -70,3 +70,62 @@ delivery.
 The separate human review and governed handoff services emit fixed-name request
 spans. They contain outcome and exception type only; reviewer identity,
 rationale, recommendation content, and handoff payload stay out of telemetry.
+
+## Offline contract corpus v2
+
+The retained v1 inputs remain at their original paths. The v2 inputs extend
+those reviewed fixtures with the merged #8 classification, #2 receipt-integrity,
+and #3 recovery behavior. Run the existing evaluators:
+
+```powershell
+uv run python -m lyme_gap_atlas_dataset_discovery.evaluation eval/corpora/v2/cases.json
+uv run python -m lyme_gap_atlas_dataset_discovery.graph_evaluation eval/corpora/v2/graph_trajectories.json
+uv run python -m lyme_gap_atlas_dataset_discovery.handoff_evaluation eval/corpora/v2/handoff.json
+```
+
+The domain report contains 11 retained domain cases and 16 receipt cases. Receipt
+cases call the real fixed Snowflake recommendation adapter through an explicitly
+offline connector fixture. They cover exact commit and lookup receipts, all
+submitted identity/hash/evidence/proposal bindings, duplicate rows and invalid
+arrays. The fixture records SQL, bound arguments, timeout and cursor closure;
+it never opens a Snowflake connection or authenticates. These results verify
+client contract behavior, not server transactions, concurrency or DEV grants.
+
+The 21 graph trajectories retain v1's 16 scenarios and add all five
+classifications with positively cited relevance. RELEVANT/POSSIBLY_RELEVANT
+remain LOW eligible with unknown optional dimensions. IRRELEVANT,
+INSUFFICIENT_EVIDENCE and BLOCKED record exact outcomes, skip rationale/proposals,
+and continue to a valid candidate. Replay must preserve one logical result.
+
+The handoff corpus adds six real-client, offline-transport recovery cases:
+lost acknowledgment with a status receipt, timeout with absent status and no
+automatic retry, explicitly requested same-version/event replay after a reset,
+and terminal authorization, authentication and unknown failures. Expected
+status refers to the read before any explicit replay. The evaluator checks
+sanitized failure kinds, original identities, exact write counts and cursor
+closure. A synthetic status response is not evidence that a real server committed.
+
+Reports explicitly identify DETERMINISTIC_FIXTURE scope and keep
+semantic_quality_accepted and hosted_acceptance false regardless of aggregate
+pass/fail. These hard contract gates cannot be averaged into a semantic-quality
+score. Corpus labels and adverse-case expectations need independent review;
+mutated-oracle tests demonstrate detection of wrong expected kinds, counts,
+status, classification and receipt validity. Existing semantic/provider policy
+and scientific suitability claims are unchanged.
+
+The offline graph and handoff evaluators use a context-local no-op provider
+through the full execution, including replay and recovery. They mask an already
+configured caller exporter and skip exporter configuration without changing the
+process-global provider. Context restoration is tested on success and failure.
+Trace tests explicitly inject an in-memory provider; CLI fixtures select no-op.
+The in-memory SDK trace contract tests capture classification abstention,
+commit-acknowledgment reconciliation and human handoff recovery. They check
+node/operation correlation and redaction without configuring an OTLP exporter.
+Node spans include stable SHA-256 fingerprints of canonical prompt/tool version
+maps and the price-table version when present; raw map keys/values are omitted.
+Full version maps remain in the existing run metadata. In-memory spans do not
+prove delivery to Arize AX or any hosted session.
+
+Shared Lab orchestration and hosted same-input comparison remain separate
+integration work. No model judge, provider call, live write, new credential,
+remote exporter or paid evaluation is needed to run these fixtures.
