@@ -6,9 +6,12 @@ import re
 from collections.abc import Sequence
 from typing import Any
 
+from snowflake.connector.errors import Error
+
 from lyme_gap_atlas_dataset_discovery.domain.handoff import HandoffReceipt, HandoffStatus
 
-from .snowflake_repository import Connection
+from .handoff_errors import classify_handoff_error
+from .snowflake_repository import Connection, Cursor
 from .snowflake_review import SnowflakeHumanReviewRepository
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -28,13 +31,17 @@ class SnowflakeHumanHandoffClient:
         self._review = SnowflakeHumanReviewRepository(connection)
 
     def assert_human_session(self) -> None:
-        self._review.assert_human_session()
+        try:
+            self._review.assert_human_session()
+        except (Error, TimeoutError, ConnectionError) as error:
+            raise classify_handoff_error(error) from None
 
     def _rows(
         self, sql: str, params: Sequence[object], *, maximum: int = 1
     ) -> list[tuple[Any, ...]]:
-        cursor = self._connection.cursor()
+        cursor: Cursor | None = None
         try:
+            cursor = self._connection.cursor()
             cursor.execute(sql, params, timeout=30)
             rows: list[tuple[Any, ...]] = []
             while len(rows) < maximum:
@@ -47,8 +54,11 @@ class SnowflakeHumanHandoffClient:
             if cursor.fetchone() is not None:
                 raise ValueError("ambiguous handoff receipt")
             return rows
+        except (Error, TimeoutError, ConnectionError) as error:
+            raise classify_handoff_error(error) from None
         finally:
-            cursor.close()
+            if cursor is not None:
+                cursor.close()
 
     def submit(self, recommendation_version_id: str, review_event_id: str) -> HandoffReceipt:
         self.assert_human_session()

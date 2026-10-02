@@ -81,3 +81,28 @@ Do not infer live authority from this document or issue closure. Do not replay a
 historical acceptance under a new event or invent a recommendation to prove
 the lifecycle. New live review/handoff writes and PROD promotion remain separate
 release gates.
+
+## Handoff transport failures
+
+The Snowflake handoff adapter raises a sanitized `HandoffOperationError` with
+`RETRYABLE_FAILURE` for local connection/timeouts, documented connector closed-
+connection/timeout codes and connection-failure, unknown-transaction or
+serialization-failure SQLSTATEs. Other connector errors, including authorization,
+validation, stale/conflicting state and unknown codes, are `TERMINAL_FAILURE`.
+Classification never reads or emits connector message text, SQL or account data.
+Domain validation and human-session denials continue to refuse the request.
+
+These are client outcomes, not persisted handoff dispositions. The CLI returns
+1 for a retryable failure and 2 for a terminal failure. There is no automatic
+retry. After connection recovery, read `handoff-status` for the original version;
+if no receipt exists, an authorized human may retry the same version and review
+event. Never replace an event, change an operation key or manufacture a failed
+row after an unknown outcome. Resolve a terminal governed cause and inspect
+current review state before any resubmission.
+
+Handoff commands initialize through the wrapped handoff human-session check.
+The same classification covers connection opening and teardown. A teardown
+failure can follow a committed receipt: the CLI does not claim rollback or
+successful delivery and does not submit again. Read the original version's
+status after recovery, including after a terminal teardown error, before any
+further governed action.

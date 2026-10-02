@@ -38,3 +38,16 @@ class HandoffReceipt(StrictModel):
 
 class HandoffStatus(HandoffReceipt):
     created_at: str
+
+
+class HandoffFailureKind(StrEnum):
+    RETRYABLE_FAILURE = "RETRYABLE_FAILURE"
+    TERMINAL_FAILURE = "TERMINAL_FAILURE"
+
+
+class HandoffOperationError(RuntimeError):
+    """Sanitized client outcome; never a durable handoff disposition."""
+
+    def __init__(self, kind: HandoffFailureKind) -> None:
+        self.kind = kind
+        super().__init__(kind.value)
