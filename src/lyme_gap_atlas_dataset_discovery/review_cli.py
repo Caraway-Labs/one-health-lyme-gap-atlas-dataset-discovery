@@ -14,6 +14,10 @@ from lyme_gap_atlas_dataset_discovery.adapters.snowflake_handoff import (
 from lyme_gap_atlas_dataset_discovery.adapters.snowflake_review import (
     SnowflakeHumanReviewRepository,
 )
+from lyme_gap_atlas_dataset_discovery.domain.handoff import (
+    HandoffFailureKind,
+    HandoffOperationError,
+)
 from lyme_gap_atlas_dataset_discovery.domain.review import ReviewDecision
 from lyme_gap_atlas_dataset_discovery.handoff_service import HumanHandoffService
 from lyme_gap_atlas_dataset_discovery.review_service import HumanReviewService
@@ -117,6 +121,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
         print(result.model_dump_json(indent=2))
         return 0
+    except HandoffOperationError as error:
+        if error.kind == HandoffFailureKind.RETRYABLE_FAILURE:
+            print(
+                "Handoff RETRYABLE_FAILURE: read handoff-status, then retry only the same "
+                "version and review event after connection recovery.",
+                file=sys.stderr,
+            )
+            return 1
+        print(
+            "Handoff TERMINAL_FAILURE: resolve the governed cause before resubmitting.",
+            file=sys.stderr,
+        )
+        return 2
     except (KeyError, PermissionError, ValueError) as error:
         print(f"Review request refused: {error}", file=sys.stderr)
         return 2
