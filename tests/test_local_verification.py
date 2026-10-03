@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 from langsmith import tracing_context
 from langsmith.utils import tracing_is_enabled
-from local_worker_fakes import abrupt_exit, blocking_operation
+from local_worker_fakes import abrupt_exit, blocking_operation, successful_worker
 from test_hosted_graph import environment
 
 from lyme_gap_atlas_dataset_discovery import local_verification as local
@@ -233,6 +233,12 @@ def test_abrupt_worker_exit_reports_unknown_durable_status_with_stable_identity(
     run_id = "dd-hosted-manual-" + "1" * 32
     result = local.supervise(run_id, "2" * 32, deadline=10, _worker_target=abrupt_exit)
     assert result == {"status": "FAILED_UNKNOWN_DURABLE_STATUS", "run_id": run_id}
+
+
+def test_successful_worker_returns_receipt_through_real_spawn_pipe() -> None:
+    run_id = "dd-hosted-manual-" + "1" * 32
+    result = local.supervise(run_id, "2" * 32, deadline=10, _worker_target=successful_worker)
+    assert result == {"status": "FINISHED", "run_id": run_id, "final_status": "COMPLETED"}
 
 
 def test_worker_masks_ambient_langsmith_and_returns_only_allowlisted_summary(

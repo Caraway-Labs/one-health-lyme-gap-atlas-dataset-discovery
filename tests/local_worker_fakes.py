@@ -13,3 +13,8 @@ def blocking_operation(_send: Any, run_id: str, _trace_id: str) -> None:
 
 def abrupt_exit(_send: Any, _run_id: str, _trace_id: str) -> None:
     os._exit(1)
+
+
+def successful_worker(send: Any, run_id: str, _trace_id: str) -> None:
+    send.send({"status": "FINISHED", "run_id": run_id, "final_status": "COMPLETED"})
+    send.close()
