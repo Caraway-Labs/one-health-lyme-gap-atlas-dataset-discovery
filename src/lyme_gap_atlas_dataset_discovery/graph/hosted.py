@@ -80,7 +80,9 @@ class HostedConfig:
     snowflake_pat: str = field(repr=False)
 
     @classmethod
-    def from_environment(cls, values: Mapping[str, str] | None = None) -> "HostedConfig":
+    def from_environment(
+        cls, values: Mapping[str, str] | None = None, *, named_runtime_pat: bool = False
+    ) -> "HostedConfig":
         env = os.environ if values is None else values
         required = (
             "FRAMEWORK_REPO_SHA",
@@ -107,7 +109,11 @@ class HostedConfig:
             raise ValueError("hosted entrypoint requires a reviewed profile") from None
         if profile not in {RunProfile.HOSTED_MANUAL, RunProfile.SHADOW}:
             raise ValueError("hosted entrypoint requires HOSTED_MANUAL or SHADOW profile")
-        if any(not env.get(name) for name in required):
+        if any(
+            not env.get(name)
+            for name in required
+            if not (named_runtime_pat and name == "ATLAS_DD_DEV_SNOWFLAKE_PAT")
+        ):
             raise ValueError("hosted entrypoint is missing required managed configuration")
         policy = (
             ModelPolicy.luna_low_v2_4096()
@@ -147,7 +153,7 @@ class HostedConfig:
                 snowflake_role=env["SNOWFLAKE_ROLE"],
                 snowflake_database=env["SNOWFLAKE_DATABASE"],
                 snowflake_warehouse=env["SNOWFLAKE_WAREHOUSE"],
-                snowflake_pat=env["ATLAS_DD_DEV_SNOWFLAKE_PAT"],
+                snowflake_pat="" if named_runtime_pat else env["ATLAS_DD_DEV_SNOWFLAKE_PAT"],
             )
         except InvalidOperation:
             raise ValueError("reviewed model prices must be decimal numbers") from None
@@ -220,6 +226,8 @@ class _PerOperationConnection:
 def _snowflake_connect(config: HostedConfig) -> Any:
     import snowflake.connector
 
+    if not config.snowflake_pat:
+        raise ValueError("managed runtime PAT is unavailable")
     # Snowflake documents PAT use as the connector password value. The secret
     # is only supplied by the managed runtime; no interactive auth fallback.
     return snowflake.connector.connect(
