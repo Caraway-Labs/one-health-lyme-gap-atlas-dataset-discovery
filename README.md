@@ -54,6 +54,12 @@ endpoint for the exact OTEL trace ID in the `atlas-dataset-discovery` project.
 
 ## Readiness and operation
 
+The [local DEV verification runner](docs/operations/local-verification.md) reuses
+the existing named runtime PAT profile without copying secrets. It fails closed
+when dedicated model authentication or reviewed all-in cost evidence is absent,
+enforces zero retries and a separate process deadline, and keeps no-export local
+verification separate from hosted and Arize acceptance.
+
 The [readiness matrix](docs/operations/readiness.md) distinguishes merged code,
 [offline evaluation](eval/README.md#offline-contract-corpus-v2), historical hosted
 DEV receipts and unavailable PROD readiness. New hosted attempts require exact

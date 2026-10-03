@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "langgraph>=0.6,<2",
+  "langsmith>=0.14,<0.15",
   "pydantic>=2.10,<3",
   "openai>=2.54,<2.55",
   "snowflake-connector-python>=4.3,<5",
